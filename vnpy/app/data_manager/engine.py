@@ -54,6 +54,10 @@ class ManagerEngine(BaseEngine):
         tz = timezone(tz_name)
 
         for item in reader:
+            if datetime_head not in item and all([i in item for i in ["date", "time"]]):
+                item[datetime_head] = "{} {}".format(item["date"], item["time"])
+            if open_interest_head not in item and "spread" in item:
+                item[open_interest_head] = item["spread"]
             if datetime_format:
                 dt = datetime.strptime(item[datetime_head], datetime_format)
             else:

@@ -40,7 +40,8 @@ from .object import (
     Exchange
 )
 from .setting import SETTINGS
-from .utility import get_folder_path, TRADER_DIR
+from .utility import get_folder_path, TRADER_DIR, extract_sec_id, vt_symbol_to_index_symbol, extract_vt_symbol
+from .index_generator import IndexGenerator
 
 
 class MainEngine:
@@ -63,6 +64,7 @@ class MainEngine:
 
         os.chdir(TRADER_DIR)    # Change working directory
         self.init_engines()     # Initialize function engines
+        self.index_generator: IndexGenerator = IndexGenerator(self, self.event_engine)
 
     def add_engine(self, engine_class: Any) -> "BaseEngine":
         """
@@ -170,7 +172,17 @@ class MainEngine:
         Subscribe tick data update of a specific gateway.
         """
         gateway = self.get_gateway(gateway_name)
-        if gateway:
+        # 同类账户全部订阅
+        if req.vt_symbol == vt_symbol_to_index_symbol(req.vt_symbol):
+            # 指数订阅
+            contract_list = self.get_all_index_trade_contract(req.vt_symbol)
+            print(contract_list)
+            for contract in contract_list:
+                symbol, exchange = extract_vt_symbol(contract.vt_symbol)
+                contract_req = SubscribeRequest(symbol, exchange)
+                gateway.subscribe(contract_req)
+            self.index_generator.subscribe(req)
+        else:
             gateway.subscribe(req)
 
     def send_order(self, req: OrderRequest, gateway_name: str) -> str:
@@ -212,8 +224,18 @@ class MainEngine:
         Send cancel order request to a specific gateway.
         """
         gateway = self.get_gateway(gateway_name)
+        result = {}
         if gateway:
-            return gateway.query_history(req)
+            if req.vt_symbol == vt_symbol_to_index_symbol(req.vt_symbol):
+                contract_list = self.get_all_index_trade_contract(req.vt_symbol)
+                print(contract_list)
+                for contract in contract_list:
+                    symbol, exchange = extract_vt_symbol(contract.vt_symbol)
+                    contract_req = HistoryRequest(symbol, exchange, start=req.start, end=req.end, interval=req.interval)
+                    result[contract.vt_symbol] = gateway.query_history(contract_req)
+                return self.index_generator.query_history(result)
+            else:
+                return gateway.query_history(req)
         else:
             return None
 
@@ -364,6 +386,8 @@ class OmsEngine(BaseEngine):
         self.main_engine.get_all_accounts = self.get_all_accounts
         self.main_engine.get_all_contracts = self.get_all_contracts
         self.main_engine.get_all_active_orders = self.get_all_active_orders
+        self.main_engine.get_all_index_trade_contract = self.get_all_index_trade_contract
+        self.main_engine.get_index_contract = self.get_index_contract
 
     def register_event(self) -> None:
         """"""
@@ -409,7 +433,28 @@ class OmsEngine(BaseEngine):
     def process_contract_event(self, event: Event) -> None:
         """"""
         contract = event.data
-        self.contracts[contract.vt_symbol] = contract
+        if contract.vt_symbol not in self.contracts.keys():
+            self.contracts[contract.vt_symbol] = contract
+            # 插入指数合约contract
+            sec_id = extract_sec_id(contract.vt_symbol)
+            index_id = f"{sec_id}99"
+            index_symbol_id = f"{index_id}.{contract.exchange.value}"
+            if index_symbol_id not in self.contracts.keys():
+                index_contract = ContractData(
+                    symbol=index_id,
+                    exchange=contract.exchange,
+                    name=f"{index_id}指数合约",
+                    product=contract.product,
+                    size=contract.size,
+                    pricetick=contract.pricetick,
+                    history_data=contract.history_data,
+                    # margin_ratio=contract.margin_ratio,
+                    # open_date="19990101",
+                    # expire_date="20990101",
+                    gateway_name=contract.gateway_name
+                )
+                index_contract.is_index_contract = True
+                self.contracts[index_symbol_id] = index_contract
 
     def get_tick(self, vt_symbol: str) -> Optional[TickData]:
         """
@@ -498,6 +543,21 @@ class OmsEngine(BaseEngine):
                 if order.vt_symbol == vt_symbol
             ]
             return active_orders
+
+    def get_all_index_trade_contract(self, vt_symbol):
+        # 查询该合约对应品种的所有在市合约
+        contract_list = []
+        target_sec_id = extract_sec_id(vt_symbol)
+        contracts = self.contracts
+        for vt_symbol, contract_data in contracts.items():
+            sec_id = extract_sec_id(vt_symbol)
+            if target_sec_id == sec_id and not contract_data.is_index_contract:
+                contract_list.append(contract_data)
+        return contract_list
+
+    def get_index_contract(self, vt_symbol):
+        contract_id = vt_symbol_to_index_symbol(vt_symbol)
+        return self.get_contract(contract_id)
 
 
 class EmailEngine(BaseEngine):
