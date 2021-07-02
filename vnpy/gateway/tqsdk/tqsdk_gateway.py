@@ -30,6 +30,8 @@ from vnpy.trader.utility import extract_vt_symbol
 from typing import List
 from pandas import DataFrame
 
+INDEX_CONTRACT_TAG = "77"
+
 
 class TqsdkTask(Thread):
     def __init__(self, gw):
@@ -79,9 +81,9 @@ class TqsdkGateway(BaseGateway):
 
     exchanges = list(Exchange)
 
-    def __init__(self, event_engine):
+    def __init__(self, event_engine, gateway_name: str = "TQSDK"):
         """Constructor"""
-        super().__init__(event_engine, "TQSDK")
+        super().__init__(event_engine, gateway_name)
 
         self.symbol_gateway_map = {}
         self.api = None
@@ -103,7 +105,7 @@ class TqsdkGateway(BaseGateway):
     @staticmethod
     def _symbol_to_tq(vt_symbol):
         vt_symbol = TqsdkGateway._symbol_swap(vt_symbol)
-        if vt_symbol.endswith("77"):
+        if vt_symbol.endswith(INDEX_CONTRACT_TAG):
             vt_symbol = "KQ.i@"+vt_symbol[:-2]
         return vt_symbol
 
@@ -117,7 +119,7 @@ class TqsdkGateway(BaseGateway):
     @staticmethod
     def _symbol_from_tq(vt_symbol):
         if vt_symbol.startswith("KQ.i@"):
-            vt_symbol = vt_symbol.split("@")[1]+"77"
+            vt_symbol = vt_symbol.split("@")[1]+INDEX_CONTRACT_TAG
 
         return TqsdkGateway._symbol_swap(vt_symbol)
 
@@ -229,7 +231,6 @@ class TqsdkGateway(BaseGateway):
                 size=quote.volume_multiple,
                 pricetick=quote.price_tick,
                 history_data=True,
-                is_index_contract=symbol.endswith("77"),
                 # margin_ratio=contract.margin_ratio,
                 # open_date="19990101",
                 # expire_date="20990101",

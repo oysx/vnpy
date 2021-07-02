@@ -7,7 +7,7 @@ from vnpy.trader.ui import MainWindow, create_qapp
 from vnpy.gateway.tqsdk import TqsdkGateway
 from vnpy.gateway.sina import SinaGateway
 from vnpy.gateway.ctp import CtpGateway
-# from vnpy.gateway.virtual import VirtualGateway
+from vnpy.gateway.virtual import VirtualGateway
 # from vnpy.gateway.ctptest import CtptestGateway
 # from vnpy.gateway.mini import MiniGateway
 # from vnpy.gateway.minitest import MinitestGateway
@@ -79,7 +79,7 @@ def main():
     main_engine.add_gateway(TqsdkGateway)
     main_engine.add_gateway(SinaGateway)
     main_engine.add_gateway(CtpGateway)
-    # main_engine.add_gateway(VirtualGateway)
+    main_engine.add_gateway(VirtualGateway)
     # main_engine.add_gateway(CtptestGateway)
     # main_engine.add_gateway(MiniGateway)
     # main_engine.add_gateway(MinitestGateway)

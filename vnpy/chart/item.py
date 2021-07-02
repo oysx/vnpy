@@ -1,7 +1,6 @@
 from abc import abstractmethod
 from typing import List, Dict, Tuple
 
-import pandas
 import pyqtgraph as pg
 
 from vnpy.trader.ui import QtCore, QtGui, QtWidgets
@@ -9,8 +8,7 @@ from vnpy.trader.object import BarData
 
 from .base import BLACK_COLOR, UP_COLOR, DOWN_COLOR, PEN_WIDTH, BAR_WIDTH
 from .manager import BarManager
-from vnpy.trader.utility import BarGenerator, ArrayManager
-import numpy as np
+
 
 class ChartItem(pg.GraphicsObject):
     """"""
@@ -155,40 +153,15 @@ class ChartItem(pg.GraphicsObject):
 class CandleItem(ChartItem):
     """"""
 
-    def update_history(self, history):
-        super(CandleItem, self).update_history(history)
-        # bars = self._manager.get_all_bars()
-        # for bar in bars:
-        #     self.array_manager.update_bar(bar)
-        #
-        # self.macd = self.array_manager.macd(12, 26, 9, array=True)
-
     def __init__(self, manager: BarManager):
         """"""
         super().__init__(manager)
-        # self.array_manager = ArrayManager(size=2000)
-        self.macd = None
-
-    def _draw_item_picture(self, min_ix: int, max_ix: int) -> None:
-        bars = self._manager.get_all_bars()
-        if bars:
-            self.array_manager = ArrayManager(size=len(bars))
-            for bar in bars:
-                self.array_manager.update_bar(bar)
-
-            self.macd = self.array_manager.macd(12, 26, 9, array=True)
-            self.ema_long = self.array_manager.ema(26, True)
-            self.ema_short = self.array_manager.ema(12, True)
-        super()._draw_item_picture(min_ix, max_ix)
 
     def _draw_bar_picture(self, ix: int, bar: BarData) -> QtGui.QPicture:
         """"""
         # Create objects
         candle_picture = QtGui.QPicture()
         painter = QtGui.QPainter(candle_picture)
-        # macd_painter = QtGui.QPainter(candle_picture)
-        # macd_painter.setPen(self._up_pen)
-        # macd_painter.setBrush(self._black_brush)
 
         # Set painter color
         if bar.close_price >= bar.open_price:
@@ -220,34 +193,14 @@ class CandleItem(ChartItem):
             )
             painter.drawRect(rect)
 
-        # Draw MACD line
-        painter.setPen(self._up_pen)
-        painter.setBrush(self._black_brush)
-        macd: np.ndarray = self.macd[0]
-        self._draw_extra_lines(ix, painter, macd)
-        painter.setPen(self._down_pen)
-        self._draw_extra_lines(ix, painter, self.ema_long)
-        self._draw_extra_lines(ix, painter, self.ema_short)
+        # vivi added
+        extra_draw = getattr(self, "_draw_extra_bar_picture", None)
+        if extra_draw:
+            extra_draw(ix, painter)
 
         # Finish
         painter.end()
         return candle_picture
-
-    def _draw_extra_lines(self, ix, painter, macd):
-        prev = ix-1 if ix >= 1 else ix
-
-        y_min, y_max = self.get_y_range()
-        m_range = np.nanmax(macd) - np.nanmin(macd)
-        m_min = np.nanmin(macd)
-        def factor(v):
-            return (v - m_min)/m_range*(y_max-y_min) + y_min
-
-        pp = factor(macd[prev])
-        pc = factor(macd[ix])
-        painter.drawLine(
-            QtCore.QPointF(prev, pp),
-            QtCore.QPointF(ix, pc)
-        )
 
     def boundingRect(self) -> QtCore.QRectF:
         """"""
@@ -275,18 +228,6 @@ class CandleItem(ChartItem):
         """
         bar = self._manager.get_bar(ix)
 
-        def factor(v):
-            return (v - m_min)/m_range*(y_max-y_min) + y_min
-
-        if self.macd:
-            macd: np.ndarray = self.macd[0]
-            y_min, y_max = self.get_y_range()
-            m_range = np.nanmax(macd) - np.nanmin(macd)
-            m_min = np.nanmin(macd)
-            macd = factor(macd[ix])
-        else:
-            macd = ""
-
         if bar:
             words = [
                 "Date",
@@ -305,10 +246,7 @@ class CandleItem(ChartItem):
                 str(bar.low_price),
                 "",
                 "Close",
-                str(bar.close_price),
-                "",
-                "MACD",
-                str(macd)
+                str(bar.close_price)
             ]
             text = "\n".join(words)
         else:

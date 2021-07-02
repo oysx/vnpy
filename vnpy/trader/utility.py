@@ -4,7 +4,6 @@ General utility functions.
 
 import json
 import logging
-import math
 import sys
 from pathlib import Path
 from typing import Callable, Dict, Tuple, Union, Optional
@@ -122,8 +121,6 @@ def round_to(value: float, target: float) -> float:
     """
     Round price to price tick value.
     """
-    if math.isnan(value):
-        return float('nan')
     value = Decimal(str(value))
     target = Decimal(str(target))
     rounded = float(int(round(value / target)) * target)
@@ -969,16 +966,3 @@ def get_file_logger(filename: str) -> logging.Logger:
     handler.setFormatter(log_formatter)
     logger.addHandler(handler)  # each handler will be added only once.
     return logger
-
-def extract_sec_id(vt_symbol: str) -> str:
-    """
-    return sec_id
-    """
-    return vt_symbol[:2] if vt_symbol[1].isalpha() else vt_symbol[0]
-
-
-def vt_symbol_to_index_symbol(vt_symbol):
-    symbol_id, exchange_value = vt_symbol.split(".")
-    sec_id = extract_sec_id(vt_symbol)
-    index_id = f"{sec_id}99"
-    return f"{index_id}.{exchange_value}"

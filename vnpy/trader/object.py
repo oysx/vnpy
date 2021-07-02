@@ -247,7 +247,6 @@ class ContractData(BaseData):
     option_expiry: datetime = None
     option_portfolio: str = ""
     option_index: str = ""          # for identifying options with same strike price
-    is_index_contract: bool = False     # 是否是指数合约，默认为否
 
     def __post_init__(self):
         """"""

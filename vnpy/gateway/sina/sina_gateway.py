@@ -175,7 +175,6 @@ class SinaGateway(BaseGateway):
                 size=7,
                 pricetick=1,
                 history_data=True,
-                is_index_contract=symbol.endswith("77"),
                 gateway_name=self.gateway_name
             )
             self.on_contract(contract)

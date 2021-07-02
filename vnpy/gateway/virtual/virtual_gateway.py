@@ -1,9 +1,4 @@
-import copy
-import json
 import sys
-import threading
-
-import requests
 
 from vnpy.event import Event
 from vnpy.trader.gateway import BaseGateway
@@ -12,13 +7,9 @@ from vnpy.trader.object import (
     CancelRequest,
     OrderRequest
 )
-from vnpy.trader.event import EVENT_TIMER
 
 from vnpy.trader.constant import Exchange, Interval
-from tqsdk import TqApi
-from tqsdk.objs import Quote as TqQuote
 from vnpy.trader.object import ContractData, TickData, HistoryRequest, BarData
-from threading import Thread
 from vnpy.trader.event import (
     EVENT_TICK,
     EVENT_ORDER,
@@ -29,45 +20,30 @@ from vnpy.trader.event import (
     EVENT_LOG,
     EVENT_QUOTE,
 )
-from datetime import datetime
-from pytz import utc as UTC_TZ
-from vnpy.trader.utility import extract_vt_symbol, extract_sec_id, vt_symbol_to_index_symbol
+from vnpy.trader.utility import extract_vt_symbol
+from vnpy.trader.index_generator import extract_sec_id, vt_symbol_to_index_symbol
 from typing import List
-from pandas import DataFrame
-from vnpy.trader.constant import Product
+from vnpy.trader.index_generator import IndexGenerator, is_index_contract
+from vnpy.gateway.ctp import CtpGateway
+from vnpy.gateway.tqsdk import TqsdkGateway
 
 
-class VirtualGateway(BaseGateway):
+class VirtualGateway(TqsdkGateway):
     """
-    VN Trader Gateway for sina API.
+    VN Trader Gateway for complement index contract API.
     """
 
-    default_setting = {
-        "class": "CtpGateway",
-    }
-
-    exchanges = list(Exchange)
-
-    def __init__(self, event_engine):
+    def __init__(self, event_engine, gateway_name: str = "VIRTUAL"):
         """Constructor"""
-        super().__init__(event_engine, "VIRTUAL")
+        event_engine.register(EVENT_CONTRACT, self.process_contract_event)
         self.backend = None
         self.contracts = {}
+        self.index_generator: IndexGenerator = IndexGenerator(self, event_engine)
+        super().__init__(event_engine, gateway_name)
 
     def connect(self, setting: dict):
         """"""
-        backend_gateway = setting['class']
-        for mod in sys.modules:
-            if hasattr(mod, backend_gateway):
-                backend_gateway = mod[backend_gateway]
-
-        self.backend = backend_gateway(self.event_engine)
-
-        self.event_engine.register(EVENT_CONTRACT, self.process_contract_event)
-        return self.backend.connect()
-
-    def __getattr__(self, item):
-        return getattr(self.backend, item)
+        return super(VirtualGateway, self).connect(setting)
 
     def process_contract_event(self, event: Event) -> None:
         """"""
@@ -92,7 +68,6 @@ class VirtualGateway(BaseGateway):
                     # expire_date="20990101",
                     gateway_name=contract.gateway_name
                 )
-                index_contract.is_index_contract = True
 
                 self.contracts[index_symbol_id] = index_contract
                 self.on_contract(index_contract)
@@ -104,17 +79,16 @@ class VirtualGateway(BaseGateway):
         contracts = self.contracts
         for vt_symbol, contract_data in contracts.items():
             sec_id = extract_sec_id(vt_symbol)
-            if target_sec_id == sec_id and not contract_data.is_index_contract:
+            if target_sec_id == sec_id and not is_index_contract(vt_symbol):
                 contract_list.append(contract_data)
         return contract_list
 
     def _get_index_contract(self, vt_symbol):
         contract_id = vt_symbol_to_index_symbol(vt_symbol)
-        return self.get_contract(contract_id)
+        return self.contracts.get(contract_id, None)
 
     def subscribe(self, req: SubscribeRequest):
         """"""
-        gateway = self.backend
         # 同类账户全部订阅
         if req.vt_symbol == vt_symbol_to_index_symbol(req.vt_symbol):
             # 指数订阅
@@ -123,27 +97,48 @@ class VirtualGateway(BaseGateway):
             for contract in contract_list:
                 symbol, exchange = extract_vt_symbol(contract.vt_symbol)
                 contract_req = SubscribeRequest(symbol, exchange)
-                gateway.subscribe(contract_req)
+                super(VirtualGateway, self).subscribe(contract_req)
             self.index_generator.subscribe(req)
         else:
-            gateway.subscribe(req)
+            super(VirtualGateway, self).subscribe(req)
 
     def query_history(self, req: HistoryRequest) -> List[BarData]:
         """
         Query bar history data.
         """
-        gateway = self.backend
         result = {}
-        if gateway:
-            if req.vt_symbol == vt_symbol_to_index_symbol(req.vt_symbol):
-                contract_list = self._get_all_index_trade_contract(req.vt_symbol)
-                print(contract_list)
-                for contract in contract_list:
-                    symbol, exchange = extract_vt_symbol(contract.vt_symbol)
-                    contract_req = HistoryRequest(symbol, exchange, start=req.start, end=req.end, interval=req.interval)
-                    result[contract.vt_symbol] = gateway.query_history(contract_req)
-                return self.index_generator.query_history(result)
-            else:
-                return gateway.query_history(req)
+        if req.vt_symbol == vt_symbol_to_index_symbol(req.vt_symbol):
+            contract_list = self._get_all_index_trade_contract(req.vt_symbol)
+            print(contract_list)
+            for contract in contract_list:
+                symbol, exchange = extract_vt_symbol(contract.vt_symbol)
+                contract_req = HistoryRequest(symbol, exchange, start=req.start, end=req.end, interval=req.interval)
+                result[contract.vt_symbol] = super(VirtualGateway, self).query_history(contract_req)
+            return self.index_generator.query_history(result)
         else:
-            return None
+            return super(VirtualGateway, self).query_history(req)
+
+#################################
+    # def process_timer_event(self, event: Event):
+    #     """"""
+    #     return self.backend.process_timer_event(event)
+    #
+    # def send_order(self, req: OrderRequest):
+    #     """"""
+    #     return self.backend.send_order(req)
+    #
+    # def cancel_order(self, req: CancelRequest):
+    #     """"""
+    #     return self.backend.cancel_order(req)
+    #
+    # def query_account(self):
+    #     """"""
+    #     return self.backend.query_account()
+    #
+    # def query_position(self):
+    #     """"""
+    #     return self.backend.query_position()
+    #
+    # def close(self):
+    #     """"""
+    #     return self.backend.close()

@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 from typing import Any, Sequence, Dict, List, Optional, Callable, Set
 from copy import copy
+import math
 
-from .utility import vt_symbol_to_index_symbol, extract_sec_id, round_to
+from .utility import round_to as util_round_to
 from vnpy.event import Event, EventEngine
 from .event import (
     EVENT_TICK,
@@ -31,6 +32,37 @@ from .object import (
     Exchange,
     BarData
 )
+
+from vnpy.gateway.tqsdk.tqsdk_gateway import INDEX_CONTRACT_TAG as TQ_INDEX_TAG
+INDEX_CONTRACT_TAG = "99"
+
+
+def extract_sec_id(vt_symbol: str) -> str:
+    """
+    return sec_id
+    """
+    return vt_symbol[:2] if vt_symbol[1].isalpha() else vt_symbol[0]
+
+
+def vt_symbol_to_index_symbol(vt_symbol):
+    symbol_id, exchange_value = vt_symbol.split(".")
+    sec_id = extract_sec_id(vt_symbol)
+    index_id = f"{sec_id}{INDEX_CONTRACT_TAG}"
+    return f"{index_id}.{exchange_value}"
+
+
+def round_to(value: float, target: float) -> float:
+    """
+    Round price to price tick value.
+    """
+    if math.isnan(value):
+        return float('nan')
+    return util_round_to(value, target)
+
+
+def is_index_contract(vt_symbol):
+    symbol, _ = vt_symbol.split(".")
+    return symbol.endswith(INDEX_CONTRACT_TAG) or symbol.endswith(TQ_INDEX_TAG)
 
 
 class IndexGenerator(ABC):
@@ -64,7 +96,7 @@ class IndexGenerator(ABC):
             sec_id = extract_sec_id(tick_data.symbol)
 
             index_tick = BarData(
-                symbol=f"{sec_id}99",
+                symbol=f"{sec_id}{INDEX_CONTRACT_TAG}",
                 exchange=tick_data.exchange,
                 datetime=tick_data.datetime,
                 interval=tick_data.interval,
@@ -108,7 +140,7 @@ class IndexGenerator(ABC):
         symbol_last_tick = self.symbol_last_tick.get(sec_id)
         if symbol_last_tick and tick_data.datetime.second != symbol_last_tick.datetime.second and symbol_tick_dict:
             index_tick = TickData(
-                symbol=f"{sec_id}99",
+                symbol=f"{sec_id}{INDEX_CONTRACT_TAG}",
                 exchange=tick_data.exchange,
                 datetime=tick_data.datetime,
                 gateway_name=tick_data.gateway_name,
