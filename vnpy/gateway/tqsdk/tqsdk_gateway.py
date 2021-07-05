@@ -185,8 +185,8 @@ class TqsdkGateway(BaseGateway):
 
     def length_calculate(self, vt_symbol: str, start: datetime, end: datetime, interval):
         # trading_time = self.api._data["quotes"][vt_symbol]["trading_time"]
-
-        return 2000
+        # return int((end - start).total_seconds() / interval)
+        return 3000
 
     @staticmethod
     def interval_convert(interval: object):

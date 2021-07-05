@@ -23,6 +23,8 @@ from ..engine import (
     OptimizationSetting
 )
 
+from PyQt5.QtWidgets import QSplitter
+
 
 class BacktesterManager(QtWidgets.QWidget):
     """"""
@@ -76,7 +78,7 @@ class BacktesterManager(QtWidgets.QWidget):
             self.interval_combo.addItem(interval.value)
 
         end_dt = datetime.now()
-        start_dt = end_dt - timedelta(days=3 * 365)
+        start_dt = end_dt - timedelta(days=30)
 
         self.start_date_edit = QtWidgets.QDateEdit(
             QtCore.QDate(
@@ -145,7 +147,7 @@ class BacktesterManager(QtWidgets.QWidget):
             edit_button,
             reload_button
         ]:
-            button.setFixedHeight(button.sizeHint().height() * 2)
+            button.setFixedHeight(button.sizeHint().height())
 
         form = QtWidgets.QFormLayout()
         form.addRow("交易策略", self.class_combo)
@@ -186,7 +188,7 @@ class BacktesterManager(QtWidgets.QWidget):
         self.log_monitor.setMaximumHeight(400)
 
         self.chart = BacktesterChart()
-        self.chart.setMinimumWidth(1000)
+        self.chart.setMinimumWidth(100)
 
         self.trade_dialog = BacktestingResultDialog(
             self.main_engine,
@@ -216,9 +218,19 @@ class BacktesterManager(QtWidgets.QWidget):
         vbox.addWidget(self.log_monitor)
 
         hbox = QtWidgets.QHBoxLayout()
-        hbox.addLayout(left_vbox)
-        hbox.addLayout(vbox)
-        hbox.addWidget(self.chart)
+        # hbox.addLayout(left_vbox)
+        # hbox.addLayout(vbox)
+        # hbox.addWidget(self.chart)
+
+        left_widget = QtWidgets.QWidget()
+        left_widget.setLayout(left_vbox)
+        vbox_widget = QtWidgets.QWidget()
+        vbox_widget.setLayout(vbox)
+        split = QSplitter(QtCore.Qt.Horizontal)
+        split.addWidget(left_widget)
+        split.addWidget(vbox_widget)
+        split.addWidget(self.chart)
+        hbox.addWidget(split)
         self.setLayout(hbox)
 
         # Code Editor
