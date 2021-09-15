@@ -12,6 +12,7 @@ from .manager import BarManager
 from vnpy.trader.utility import BarGenerator, ArrayManager
 import numpy as np
 from vnpy.chart import CandleItem
+import math
 
 
 class CustomizedCandleItem(CandleItem):
@@ -30,10 +31,11 @@ class CustomizedCandleItem(CandleItem):
         super().__init__(manager)
         # self.array_manager = ArrayManager(size=2000)
         self.macd = None
+        self.array_manager = None
 
     def _draw_item_picture(self, min_ix: int, max_ix: int) -> None:
         bars = self._manager.get_all_bars()
-        if bars:
+        if bars and not self.array_manager:
             self.array_manager = ArrayManager(size=len(bars))
             for bar in bars:
                 self.array_manager.update_bar(bar)
@@ -71,6 +73,8 @@ class CustomizedCandleItem(CandleItem):
 
         pp = factor(macd[prev])
         pc = factor(macd[ix])
+        if math.isnan(pp) or math.isnan(pc):
+            return
         painter.drawLine(
             QtCore.QPointF(prev, pp),
             QtCore.QPointF(ix, pc)

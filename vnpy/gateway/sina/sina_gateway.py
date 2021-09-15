@@ -64,6 +64,7 @@ class SinaGateway(BaseGateway):
 
     def sina_quote(self, vt_symbol):
         symbol, exchange = extract_vt_symbol(vt_symbol)
+        # symbol = symbol.lower()
         keys = [
             "",             #0:name
             "",             #1:time
@@ -87,6 +88,10 @@ class SinaGateway(BaseGateway):
         result = result.split("=\"")[1][:-3]
         result = result.split(",")
         print(result)
+        if len(result) < len(keys):
+            print("Invalid data")
+            return None
+
         data = {}
         for i, v in enumerate(keys):
             if not v:
@@ -104,6 +109,8 @@ class SinaGateway(BaseGateway):
         """"""
         for vt_symbol in self.subscribed_symbols.values():
             tick = self.sina_quote(vt_symbol)
+            if not tick:
+                continue
             tick = TickData(**tick)
             self.event_engine.put(Event(EVENT_TICK, tick))
 
