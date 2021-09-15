@@ -31,3 +31,4 @@ influxdb
 vnpy_ctp
 vnpy_ctptest
 vnpy_okex
+tqsdk==1.8.2
