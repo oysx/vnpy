@@ -64,9 +64,9 @@ class ChartWizardWidget(QtWidgets.QWidget):
         """"""
         chart = ChartWidget()
         chart.add_plot("candle", hide_x_axis=True)
-        chart.add_plot("volume", maximum_height=200)
+        # chart.add_plot("volume", maximum_height=200)
         chart.add_item(CustomizedCandleItem, "candle", "candle")
-        chart.add_item(VolumeItem, "volume", "volume")
+        # chart.add_item(VolumeItem, "volume", "volume")
         chart.add_cursor()
         return chart
 

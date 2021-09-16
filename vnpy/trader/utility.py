@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Dict, Tuple, Union, Optional
 from decimal import Decimal
 from math import floor, ceil
+from functools import partial
 
 import numpy as np
 import talib
@@ -936,6 +937,159 @@ class ArrayManager(object):
             return result
         return result[-1]
 
+    def vi_points(self) -> [np.ndarray, np.ndarray]:
+        """
+        BOP.
+        """
+        def get_percent(data: float, peak: float):
+            return (peak - data) / peak
+
+        def cond_percent(data: np.ndarray, peak: int, percent: float = 0.001):
+            left: np.ndarray = data[:peak]
+            right: np.ndarray = data[peak+1:]
+            left_mean = left.mean()
+            right_mean = right.mean()
+            left_percent = get_percent(left_mean, data[peak])
+            right_percent = get_percent(right_mean, data[peak])
+            if left_percent >= percent and right_percent >= percent:       # top
+                return True
+            elif left_percent <= -percent and right_percent <= -percent:   # buttom
+                return True
+            return False
+
+        def delta(data: np.ndarray):
+            length = len(data)
+            if not length:
+                return np.zeros(0)
+            ret = np.zeros(length-1)
+            for i in range(length-1):
+                ret[i] = data[i+1] - data[i]
+            return ret
+
+        def get_socpe(data: np.ndarray, whole):
+            data = delta(data)
+            data = data.sum()
+            # data = data > 0
+            # data = data.sum() / len(data)
+            data = data / whole if data > 0 else (whole + data) / whole
+            return data
+
+        def cond_slope(data: np.ndarray, peak: int, percent: float = 0.001):
+            left: np.ndarray = data[:peak+1]
+            right: np.ndarray = data[peak:]
+            left = get_socpe(left, data[peak])
+            right = get_socpe(right, data[peak])
+            revert_percent = 1.0 - percent
+            if left > revert_percent and right < percent:   # top
+                return True
+            elif left < percent and right > revert_percent: # buttom
+                return True
+            return False
+
+        conditions = [cond_percent]#, cond_slope]
+
+        def is_peak(data: np.ndarray, peak: int):
+            for cond in conditions:
+                ret = cond(data, peak)
+                if not ret:
+                    return False
+            return True
+
+        def peak(data: np.ndarray, width: int = 5, positive: bool = True):
+            anchor = None
+            for ix, d in enumerate(data):
+                if anchor is None or (positive and data[anchor] < d) or (not positive and data[anchor] > d):
+                    anchor = ix
+                    continue
+                if ix - anchor == width:
+                    prev = anchor - width if anchor >= width else 0
+                    yield anchor, data[prev:ix+1], anchor-prev, ix
+                    anchor = None   # Want to find all shape not only upper or lower shape
+
+        top_point = np.zeros(len(self.high))
+        buttom_point = np.zeros(len(self.high))
+        for a, d, p, ix in peak(self.high, width=8):
+            if is_peak(d, p):
+                top_point[a] = d[p]
+                print("Found top: ", a)
+
+        for a, d, p, ix in peak(self.high, width=6, positive=False):
+            if is_peak(d, p):
+                buttom_point[a] = d[p]
+                print("Found buttom: ", a)
+
+        STATE_BREAK_UP = "Break Up"
+        STATE_BREAK_DOWN = "Break Down"
+
+        def find_break(data: np.ndarray, points: np.ndarray, percent: float = 0.001):
+            breaks = np.zeros(len(data))
+            kp_array = np.zeros((len(data), 2))
+
+            kp_up = None
+            kp_down = None
+            break_up = None
+            break_down = None
+            state = None
+            for ix in points.nonzero()[0]:
+                if not kp_up and points[ix] > 0:
+                    kp_up = ix
+                    kp_array[ix][0] = data[ix]
+                    kp_array[ix][1] = 1
+                elif not kp_down and points[ix] < 0:
+                    kp_down = ix
+                    kp_array[ix][0] = data[ix]
+                    kp_array[ix][1] = -1
+
+                if kp_up is None or kp_down is None:
+                    continue
+
+                if break_down and ix < break_down and break_up and ix < break_up:
+                    # In the middle of the break_up/down, these points are not concerned
+                    continue
+
+                if state == STATE_BREAK_UP and points[ix] > 0 and data[ix] > data[kp_up] * (1 + percent):
+                    # update kp_up
+                    kp_up = ix
+                    kp_array[ix][0] = data[ix]
+                    kp_array[ix][1] = 1
+                elif state == STATE_BREAK_DOWN and points[ix] < 0 and data[ix] < data[kp_down] * (1 - percent):
+                    kp_down = ix
+                    kp_array[ix][0] = data[ix]
+                    kp_array[ix][1] = -1
+
+                if state == STATE_BREAK_UP and points[ix] < 0 or state == STATE_BREAK_DOWN and points[ix] > 0:
+                    continue
+
+                # Here we start state machine
+                result = None
+                break_up = ix + np.nonzero(data[ix:] > data[kp_up] * (1 + percent))[0]
+                break_up = break_up[0] if len(break_up) > 0 else sys.maxsize
+                break_down = ix + np.nonzero(data[ix:] < data[kp_down] * (1 - percent))[0]
+                break_down = break_down[0] if len(break_down) > 0 else sys.maxsize
+
+                if break_down < break_up:
+                    state = STATE_BREAK_DOWN
+                    result = break_down
+                    # update kp_up to highest point between kp_down and break_down
+                    kp_up = kp_down+data[kp_down:break_down].argmax()
+                    kp_array[kp_up][0] = data[kp_up]
+                    kp_array[kp_up][1] = 1
+                elif break_down > break_up:
+                    state = STATE_BREAK_UP
+                    result = break_up
+                    # update kp_down to lowest point between kp_up and break_up
+                    kp_down = kp_up+data[kp_up:break_up].argmin()
+                    kp_array[kp_down][0] = data[kp_down]
+                    kp_array[kp_down][1] = -1
+
+                if result is not None:
+                    breaks[result] = data[result]
+                    print(state)
+
+            return breaks, kp_array
+
+        break_point, key_point = find_break(self.high, top_point-buttom_point)
+        return top_point, buttom_point, break_point, key_point
 
 def virtual(func: Callable) -> Callable:
     """

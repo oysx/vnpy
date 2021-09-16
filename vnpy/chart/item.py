@@ -38,6 +38,9 @@ class ChartItem(pg.GraphicsObject):
 
         # Very important! Only redraw the visible part and improve speed a lot.
         self.setFlag(self.ItemUsesExtendedStyleOption)
+        self._white_pen: QtGui.QPen = pg.mkPen(
+            color=(255, 255, 255), width=2
+        )
 
     @abstractmethod
     def _draw_bar_picture(self, ix: int, bar: BarData) -> QtGui.QPicture:
