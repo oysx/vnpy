@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Callable, Dict, Tuple, Union, Optional
 from decimal import Decimal
 from math import floor, ceil
-from functools import partial
 
 import numpy as np
 import talib
