@@ -12,5 +12,5 @@ class DataManagerApp(BaseApp):
     app_path = Path(__file__).parent
     display_name = "数据管理"
     engine_class = ManagerEngine
-    widget_name = "ManagerWidget"
+    widget_name = "CustomizedManagerWidget"
     icon_name = "manager.ico"
