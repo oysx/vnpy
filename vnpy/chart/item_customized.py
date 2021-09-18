@@ -16,6 +16,7 @@ import math
 from itertools import combinations
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QPainterPath, QPainter
+from vnpy.trader.utility_customized import ShapeFinder
 
 
 class CustomizedCandleItem(CandleItem):
@@ -66,7 +67,8 @@ class CustomizedCandleItem(CandleItem):
             self.ema_short = self.array_manager.ema(12, True)
             self.lines = self.array_manager.high
             self.sma = self.array_manager.sma(3, True)
-            self.tops, self.buttoms, self.break_points, self.key_points = self.array_manager.vi_points()
+            finder = ShapeFinder(self.array_manager)
+            self.tops, self.buttoms, self.break_points, self.key_points = finder.search()
             self.x_min = min_ix
             self.x_max = max_ix
             self.pixel_size = self.parentItem().pixelLength(None)
