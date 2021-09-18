@@ -1011,15 +1011,24 @@ class ArrayManager(object):
         for a, d, p, ix in peak(self.high, width=8):
             if is_peak(d, p):
                 top_point[a] = d[p]
-                print("Found top: ", a)
+                # print("Found top: ", a)
 
         for a, d, p, ix in peak(self.high, width=6, positive=False):
             if is_peak(d, p):
                 buttom_point[a] = d[p]
-                print("Found buttom: ", a)
+                # print("Found buttom: ", a)
 
         STATE_BREAK_UP = "Break Up"
         STATE_BREAK_DOWN = "Break Down"
+
+        def get_break_point(data: np.ndarray, key_point: int, percent: float, ix: int, direction: bool):
+            if direction:   # UP
+                _break_point = ix + np.nonzero(data[ix:] > data[key_point] * (1 + percent))[0]
+                _break_point = _break_point[0] if len(_break_point) > 0 else sys.maxsize
+            else:           # DOWN
+                _break_point = ix + np.nonzero(data[ix:] < data[key_point] * (1 - percent))[0]
+                _break_point = _break_point[0] if len(_break_point) > 0 else sys.maxsize
+            return _break_point
 
         def find_break(data: np.ndarray, points: np.ndarray, percent: float = 0.001):
             breaks = np.zeros(len(data))
@@ -1030,7 +1039,40 @@ class ArrayManager(object):
             break_up = None
             break_down = None
             state = None
-            for ix in points.nonzero()[0]:
+            iteration = iter(points.nonzero()[0])
+
+            def break_action(direction: bool):
+                nonlocal state, result, kp_up, break_up, break_down, kp_down, breaks
+                if not direction:   # DOWN
+                    state = STATE_BREAK_DOWN
+                    result = break_down
+                    # update kp_up to highest point between kp_down and break_down
+                    kp_up = kp_down + data[kp_down:break_down].argmax()
+                    break_up = get_break_point(data, kp_up, percent, ix, True)
+                    kp_array[kp_up][0] = data[kp_up]
+                    kp_array[kp_up][1] = 1
+                else:               # UP
+                    state = STATE_BREAK_UP
+                    result = break_up
+                    # update kp_down to lowest point between kp_up and break_up
+                    kp_down = kp_up + data[kp_up:break_up].argmin()
+                    break_down = get_break_point(data, kp_down, percent, ix, False)
+                    kp_array[kp_down][0] = data[kp_down]
+                    kp_array[kp_down][1] = -1
+
+                if result is not None:
+                    breaks[result] = data[result] if result == break_up else -data[result]
+                    # print(state)
+
+            skip = False
+            while True:
+                result = None
+                try:
+                    ix = ix if skip else next(iteration)
+                    skip = False
+                except StopIteration:
+                    break
+
                 if not kp_up and points[ix] > 0:
                     kp_up = ix
                     kp_array[ix][0] = data[ix]
@@ -1047,6 +1089,15 @@ class ArrayManager(object):
                     # In the middle of the break_up/down, these points are not concerned
                     continue
 
+                if break_down and break_down < ix and state == STATE_BREAK_UP:
+                    break_action(False)
+                    skip = True
+                    continue
+                elif break_up and break_up < ix and state == STATE_BREAK_DOWN:
+                    break_action(True)
+                    skip = True
+                    continue
+
                 if state == STATE_BREAK_UP and points[ix] > 0 and data[ix] > data[kp_up] * (1 + percent):
                     # update kp_up
                     kp_up = ix
@@ -1061,30 +1112,13 @@ class ArrayManager(object):
                     continue
 
                 # Here we start state machine
-                result = None
-                break_up = ix + np.nonzero(data[ix:] > data[kp_up] * (1 + percent))[0]
-                break_up = break_up[0] if len(break_up) > 0 else sys.maxsize
-                break_down = ix + np.nonzero(data[ix:] < data[kp_down] * (1 - percent))[0]
-                break_down = break_down[0] if len(break_down) > 0 else sys.maxsize
+                break_up = get_break_point(data, kp_up, percent, ix, True)
+                break_down = get_break_point(data, kp_down, percent, ix, False)
 
                 if break_down < break_up:
-                    state = STATE_BREAK_DOWN
-                    result = break_down
-                    # update kp_up to highest point between kp_down and break_down
-                    kp_up = kp_down+data[kp_down:break_down].argmax()
-                    kp_array[kp_up][0] = data[kp_up]
-                    kp_array[kp_up][1] = 1
+                    break_action(False)
                 elif break_down > break_up:
-                    state = STATE_BREAK_UP
-                    result = break_up
-                    # update kp_down to lowest point between kp_up and break_up
-                    kp_down = kp_up+data[kp_up:break_up].argmin()
-                    kp_array[kp_down][0] = data[kp_down]
-                    kp_array[kp_down][1] = -1
-
-                if result is not None:
-                    breaks[result] = data[result]
-                    print(state)
+                    break_action(True)
 
             return breaks, kp_array
 
