@@ -42,6 +42,18 @@ class CustomizedCandleItem(CandleItem):
         # self.array_manager = ArrayManager(size=2000)
         self.macd = None
 
+    def _draw_bar_picture(self, ix: int, bar: BarData) -> QtGui.QPicture:
+        if False:
+            candle_picture = QtGui.QPicture()
+            painter = QtGui.QPainter(candle_picture)
+            painter.setPen(self._up_pen)
+            painter.setBrush(self._black_brush)
+            self._draw_extra_bar_picture(ix, painter)
+            painter.end()
+            return candle_picture
+
+        return super(CustomizedCandleItem, self)._draw_bar_picture(ix, bar)
+
     def _draw_item_picture(self, min_ix: int, max_ix: int) -> None:
         bars = self._manager.get_all_bars()
         if bars:
