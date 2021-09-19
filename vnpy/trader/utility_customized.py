@@ -106,9 +106,10 @@ def delta(data: np.ndarray):
     length = len(data)
     if not length:
         return np.zeros(0)
-    ret = np.zeros(length - 1)
-    for i in range(length - 1):
-        ret[i] = data[i + 1] - data[i]
+    ret = np.zeros(length)
+    ret[0] = 0.0
+    for i in range(1, length):
+        ret[i] = data[i] - data[i-1]
     return ret
 
 
