@@ -72,7 +72,7 @@ class CustomizedCandleItem(CandleItem):
             self.x_min = min_ix
             self.x_max = max_ix
             self.pixel_size = self.parentItem().pixelLength(None)
-            print("Peak: ", len(self.peak_points.nonzero()[0]), self.peak_points.nonzero())
+
         super()._draw_item_picture(min_ix, max_ix)
 
     def _draw_extra_bar_picture(self, ix: int, painter: QtGui.QPainter) -> None:

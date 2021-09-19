@@ -45,6 +45,13 @@ class Shape(object):
         self.range = range if range is not None else (0, len(data))
         self.min, self.max = self.range
         self.params = params if params else {}
+        self.found = set()
+
+    def count(self):
+        return len(self.found)
+
+    def show(self):
+        print(self.__class__.__name__, self.count(), self.found)
 
 
 class Peak(Shape):
@@ -71,6 +78,7 @@ class PeakWeak(Peak):
                 continue
             if ix - anchor == self.width:
                 prev = anchor - self.width if anchor >= self.width else 0
+                self.found.add(anchor)
                 yield anchor, (prev, ix+1)
                 anchor = None   # Want to find all shape not only upper or lower shape
 
@@ -86,6 +94,7 @@ class PeakNonSymmetry(Peak):
             data: np.ndarray = self.data[ix:ix+self.width]
             peak = data.argmax().astype(int) if positive else data.argmin().astype(int)
             if self.width_min <= peak <= self.width - self.width_min:
+                self.found.add(ix+peak)
                 yield ix + peak, (ix, ix + self.width)
 
 
@@ -113,32 +122,41 @@ def get_socpe(data: np.ndarray, whole):
 
 
 class PeakMean(Peak):
-    def find(self, peak):
-        left: np.ndarray = self.data[self.min:peak]
-        right: np.ndarray = self.data[peak+1:self.max]
+    def find(self, peak, range=None):
+        min, max = range if range else (self.min, self.max)
+        result = False
+        left: np.ndarray = self.data[min:peak]
+        right: np.ndarray = self.data[peak+1:max]
         left_mean = left.mean()
         right_mean = right.mean()
         left_percent = get_percent(left_mean, self.data[peak])
         right_percent = get_percent(right_mean, self.data[peak])
         if left_percent >= self.percent and right_percent >= self.percent:       # top
-            return True
+            result = True
         elif left_percent <= -self.percent and right_percent <= -self.percent:   # buttom
-            return True
-        return False
+            result = True
+
+        if result:
+            self.found.add(peak)
+        return result
 
 
 class PeakSlope(Peak):
     def find(self, peak: int):
+        result = False
         left: np.ndarray = self.data[:peak + 1]
         right: np.ndarray = self.data[peak:]
         left = get_socpe(left, self.data[peak])
         right = get_socpe(right, self.data[peak])
         revert_percent = 1.0 - self.percent
         if left > revert_percent and right < self.percent:  # top
-            return True
+            result = True
         elif left < self.percent and right > revert_percent:  # buttom
-            return True
-        return False
+            result = True
+
+        if result:
+            self.found.add(peak)
+        return result
 
 
 class ShapeFinder(object):
@@ -151,20 +169,24 @@ class ShapeFinder(object):
         top_point = np.zeros(len(self.high))
         buttom_point = np.zeros(len(self.high))
         peaks = PeakNonSymmetry(data=self.high, params={"width": 8})
+        more = PeakMean(data=self.high)
         for anchor, range in peaks.foreach(positive=True):
             peak_points[anchor] = self.high[anchor]
-            more = PeakMean(data=self.high, range=range)
-            if more.find(anchor):
+            if more.find(anchor, range):
                 top_point[anchor] = self.high[anchor]
                 # print("Found top: ", anchor)
+        peaks.show()
+        more.show()
 
         peaks = PeakNonSymmetry(data=self.high, params={"width": 6})
+        more = PeakMean(data=self.high)
         for anchor, range in peaks.foreach(positive=False):
             peak_points[anchor] = -self.high[anchor]
-            more = PeakMean(data=self.high, range=range)
-            if more.find(anchor):
+            if more.find(anchor, range):
                 buttom_point[anchor] = self.high[anchor]
                 # print("Found buttom: ", anchor)
+        peaks.show()
+        more.show()
 
         strategy = Strategy(self.high, top_point-buttom_point)
         break_point, key_point = strategy.find_break()
