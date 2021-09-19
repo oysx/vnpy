@@ -75,6 +75,20 @@ class PeakWeak(Peak):
                 anchor = None   # Want to find all shape not only upper or lower shape
 
 
+class PeakNonSymmetry(Peak):
+    def __init__(self, *args, **kwargs):
+        super(PeakNonSymmetry, self).__init__(*args, **kwargs)
+        self.width_min = self.params.get("width_min", 3)
+        self.width *= 2     # convert the width concept
+
+    def foreach(self, positive: bool = True):
+        for ix in range(*self.range):
+            data: np.ndarray = self.data[ix:ix+self.width]
+            peak = data.argmax().astype(int) if positive else data.argmin().astype(int)
+            if self.width_min <= peak <= self.width - self.width_min:
+                yield ix + peak, (ix, ix + self.width)
+
+
 def get_percent(data: float, peak: float):
     return (peak - data) / peak
 
@@ -133,17 +147,20 @@ class ShapeFinder(object):
         self.high = array_manager.high
 
     def search(self):
+        peak_points = np.zeros(len(self.high))
         top_point = np.zeros(len(self.high))
         buttom_point = np.zeros(len(self.high))
-        peaks = PeakWeak(data=self.high, params={"width": 8})
+        peaks = PeakNonSymmetry(data=self.high, params={"width": 8})
         for anchor, range in peaks.foreach(positive=True):
+            peak_points[anchor] = self.high[anchor]
             more = PeakMean(data=self.high, range=range)
             if more.find(anchor):
                 top_point[anchor] = self.high[anchor]
                 # print("Found top: ", anchor)
 
-        peaks = PeakWeak(data=self.high, params={"width": 6})
+        peaks = PeakNonSymmetry(data=self.high, params={"width": 6})
         for anchor, range in peaks.foreach(positive=False):
+            peak_points[anchor] = -self.high[anchor]
             more = PeakMean(data=self.high, range=range)
             if more.find(anchor):
                 buttom_point[anchor] = self.high[anchor]
@@ -151,7 +168,7 @@ class ShapeFinder(object):
 
         strategy = Strategy(self.high, top_point-buttom_point)
         break_point, key_point = strategy.find_break()
-        return top_point, buttom_point, break_point, key_point
+        return peak_points, top_point, buttom_point, break_point, key_point
 
 
 class Strategy(object):
