@@ -39,6 +39,39 @@ class WrapIt(object):
         pass
 
 
+class Algorithm(object):
+    @staticmethod
+    def percent(data: float, peak: float):
+        return (peak - data) / peak
+
+    @staticmethod
+    def ratio_pos_neg(data: np.ndarray):
+        data = Algorithm.derivative(data)
+        positive: np.ndarray = data * (data > 0)
+        negative: np.ndarray = data * (data < 0)
+        return positive.sum() / (positive.sum() - negative.sum())
+
+    @staticmethod
+    def derivative(data: np.ndarray):
+        length = len(data)
+        if not length:
+            return np.zeros(0)
+        ret = np.zeros(length)
+        ret[0] = 0.0
+        for i in range(1, length):
+            ret[i] = data[i] - data[i - 1]
+        return ret
+
+    @staticmethod
+    def get_socpe(data: np.ndarray, whole):
+        data = Algorithm.derivative(data)
+        data = data.sum()
+        # data = data > 0
+        # data = data.sum() / len(data)
+        data = data / whole if data > 0 else (whole + data) / whole
+        return data
+
+
 class Shape(object):
     def __init__(self, data: np.ndarray, range: tuple = None, params: dict = None):
         self.data = data
@@ -67,7 +100,7 @@ class Peak(Shape):
         raise NotImplementedError("")
 
 
-class PeakWeak(Peak):
+class PeakHorizontalSymmetry(Peak):
     def foreach(self, positive: bool = True):
         anchor = None
         for ix in range(*self.range):
@@ -83,9 +116,9 @@ class PeakWeak(Peak):
                 anchor = None   # Want to find all shape not only upper or lower shape
 
 
-class PeakNonSymmetry(Peak):
+class PeakHorizontalAsymmetry(Peak):
     def __init__(self, *args, **kwargs):
-        super(PeakNonSymmetry, self).__init__(*args, **kwargs)
+        super(PeakHorizontalAsymmetry, self).__init__(*args, **kwargs)
         self.width_min = self.params.get("width_min", 3)
         self.width *= 2     # convert the width concept
 
@@ -98,31 +131,12 @@ class PeakNonSymmetry(Peak):
                 yield ix + peak, (ix, ix + self.width)
 
 
-def get_percent(data: float, peak: float):
-    return (peak - data) / peak
 
 
-def delta(data: np.ndarray):
-    length = len(data)
-    if not length:
-        return np.zeros(0)
-    ret = np.zeros(length)
-    ret[0] = 0.0
-    for i in range(1, length):
-        ret[i] = data[i] - data[i-1]
-    return ret
 
 
-def get_socpe(data: np.ndarray, whole):
-    data = delta(data)
-    data = data.sum()
-    # data = data > 0
-    # data = data.sum() / len(data)
-    data = data / whole if data > 0 else (whole + data) / whole
-    return data
 
-
-class PeakMean(Peak):
+class PeakVerticalMean(Peak):
     def find(self, peak, range=None):
         min, max = range if range else (self.min, self.max)
         result = False
@@ -130,8 +144,8 @@ class PeakMean(Peak):
         right: np.ndarray = self.data[peak+1:max]
         left_mean = left.mean()
         right_mean = right.mean()
-        left_percent = get_percent(left_mean, self.data[peak])
-        right_percent = get_percent(right_mean, self.data[peak])
+        left_percent = Algorithm.percent(left_mean, self.data[peak])
+        right_percent = Algorithm.percent(right_mean, self.data[peak])
         if left_percent >= self.percent and right_percent >= self.percent:       # top
             result = True
         elif left_percent <= -self.percent and right_percent <= -self.percent:   # buttom
@@ -142,17 +156,41 @@ class PeakMean(Peak):
         return result
 
 
-class PeakSlope(Peak):
-    def find(self, peak: int):
+class PeakVerticalSlope(Peak):
+    def find(self, peak: int, range: tuple = None):
+        min, max = range if range else (self.min, self.max)
         result = False
-        left: np.ndarray = self.data[:peak + 1]
-        right: np.ndarray = self.data[peak:]
-        left = get_socpe(left, self.data[peak])
-        right = get_socpe(right, self.data[peak])
+        left: np.ndarray = self.data[min:peak + 1]
+        right: np.ndarray = self.data[peak:max]
+        left = Algorithm.get_socpe(left, self.data[peak])
+        right = Algorithm.get_socpe(right, self.data[peak])
         revert_percent = 1.0 - self.percent
         if left > revert_percent and right < self.percent:  # top
             result = True
         elif left < self.percent and right > revert_percent:  # buttom
+            result = True
+
+        if result:
+            self.found.add(peak)
+        return result
+
+
+class PeakVerticalRatio(Peak):
+    def __init__(self, *args, **kwargs):
+        super(PeakVerticalRatio, self).__init__(*args, **kwargs)
+        self.percent = self.params.get("percent", 0.1)
+
+    def find(self, peak: int, range: tuple = None):
+        min, max = range if range else (self.min, self.max)
+        result = False
+        left: np.ndarray = self.data[min:peak + 1]
+        right: np.ndarray = self.data[peak:max]
+        left = Algorithm.ratio_pos_neg(left)
+        right = Algorithm.ratio_pos_neg(right)
+        revert_percent = 1.0 - self.percent
+        if left > revert_percent and right < self.percent:      # UP
+            result = True
+        elif left < self.percent and right > revert_percent:    # DOWN
             result = True
 
         if result:
@@ -169,8 +207,8 @@ class ShapeFinder(object):
         peak_points = np.zeros(len(self.high))
         top_point = np.zeros(len(self.high))
         buttom_point = np.zeros(len(self.high))
-        peaks = PeakNonSymmetry(data=self.high, params={"width": 8})
-        more = PeakMean(data=self.high)
+        peaks = PeakHorizontalAsymmetry(data=self.high, params={"width": 8})
+        more = PeakVerticalRatio(data=self.high)
         for anchor, range in peaks.foreach(positive=True):
             peak_points[anchor] = self.high[anchor]
             if more.find(anchor, range):
@@ -179,8 +217,8 @@ class ShapeFinder(object):
         peaks.show()
         more.show()
 
-        peaks = PeakNonSymmetry(data=self.high, params={"width": 6})
-        more = PeakMean(data=self.high)
+        peaks = PeakHorizontalAsymmetry(data=self.high, params={"width": 6})
+        more = PeakVerticalRatio(data=self.high)
         for anchor, range in peaks.foreach(positive=False):
             peak_points[anchor] = -self.high[anchor]
             if more.find(anchor, range):
