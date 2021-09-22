@@ -68,7 +68,7 @@ class CustomizedCandleItem(CandleItem):
             self.lines = self.array_manager.high
             self.sma = self.array_manager.sma(3, True)
             finder = ShapeFinder(self.array_manager)
-            self.peak_points, self.tops, self.buttoms, self.break_points, self.key_points = finder.search()
+            self.alternative_points, self.peak_points, self.break_points, self.key_points = finder.search()
             self.x_min = min_ix
             self.x_max = max_ix
             self.pixel_size = self.parentItem().pixelLength(None)
@@ -92,24 +92,19 @@ class CustomizedCandleItem(CandleItem):
         # self._draw_extra_lines(ix, painter, self.ema_long)
         # self._draw_extra_lines(ix, painter, self.ema_short)
         self._draw_lines(ix, painter, self.lines)
-        self._draw_lines(ix, painter, self.tops)
+        self._draw_lines(ix, painter, self.peak_points.positive())
 
         painter.setPen(self._up_pen)
-        self._draw_lines(ix, painter, self.buttoms)
+        self._draw_lines(ix, painter, self.peak_points.negative())
 
         if hasattr(self, "_white_pen"):
             painter.setPen(self._white_pen)
 
-        up = self.break_points * (self.break_points > 0)
-        down = - self.break_points * (self.break_points < 0)
-        self._draw_mark(ix, painter, up, shape=self.SHAPE_ARROW_UP, color=Qt.red)
-        self._draw_mark(ix, painter, down, shape=self.SHAPE_ARROW_DOWN, color=Qt.red)
-        array = self.key_points.swapaxes(0, 1)
-        top = array[0] * (array[1] > 0)
-        buttom = array[0] * (array[1] < 0)
+        self._draw_mark(ix, painter, self.break_points.positive(), shape=self.SHAPE_ARROW_UP, color=Qt.red)
+        self._draw_mark(ix, painter, self.break_points.negative(), shape=self.SHAPE_ARROW_DOWN, color=Qt.red)
 
-        self._draw_mark(ix, painter, top, shape=self.SHAPE_TRIANGLE_UP)
-        self._draw_mark(ix, painter, buttom, shape=self.SHAPE_TRIANGLE_DOWN)
+        self._draw_mark(ix, painter, self.key_points.positive(), shape=self.SHAPE_TRIANGLE_UP)
+        self._draw_mark(ix, painter, self.key_points.negative(), shape=self.SHAPE_TRIANGLE_DOWN)
 
     def _draw_extra_lines(self, ix, painter, macd):
         prev = ix-1 if ix >= 1 else ix

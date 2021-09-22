@@ -198,38 +198,53 @@ class PeakVerticalRatio(Peak):
         return result
 
 
+class Points(object):
+    def __init__(self, data: np.ndarray):
+        self.source = data
+        self.array = np.zeros(len(data))
+
+    def set(self, idx, positive=True):
+        self.array[idx] = self.source[idx] if positive else -self.source[idx]
+
+    def positive(self):
+        return self.array * (self.array > 0)
+
+    def negative(self):
+        return -self.array * (self.array < 0)
+
+    def all(self):
+        return self.positive() - self.negative()
+
+
 class ShapeFinder(object):
     def __init__(self, array_manager: ArrayManager):
         self.array_manager = array_manager
         self.high = array_manager.high
 
     def search(self):
-        peak_points = np.zeros(len(self.high))
-        top_point = np.zeros(len(self.high))
-        buttom_point = np.zeros(len(self.high))
+        alternative_points = Points(self.high)
+        peak_points = Points(self.high)
         peaks = PeakHorizontalAsymmetry(data=self.high, params={"width": 8})
         more = PeakVerticalRatio(data=self.high)
         for anchor, range in peaks.foreach(positive=True):
-            peak_points[anchor] = self.high[anchor]
+            alternative_points.set(anchor, positive=True)
             if more.find(anchor, range):
-                top_point[anchor] = self.high[anchor]
-                # print("Found top: ", anchor)
+                peak_points.set(anchor, positive=True)
         peaks.show()
         more.show()
 
         peaks = PeakHorizontalAsymmetry(data=self.high, params={"width": 6})
         more = PeakVerticalRatio(data=self.high)
         for anchor, range in peaks.foreach(positive=False):
-            peak_points[anchor] = -self.high[anchor]
+            alternative_points.set(anchor, positive=False)
             if more.find(anchor, range):
-                buttom_point[anchor] = self.high[anchor]
-                # print("Found buttom: ", anchor)
+                peak_points.set(anchor, positive=False)
         peaks.show()
         more.show()
 
-        strategy = Strategy(self.high, top_point-buttom_point)
+        strategy = Strategy(self.high, peak_points)
         break_point, key_point = strategy.find_break()
-        return peak_points, top_point, buttom_point, break_point, key_point
+        return alternative_points, peak_points.positive(), peak_points.negative(), break_point, key_point
 
 
 class Strategy(object):
@@ -239,8 +254,8 @@ class Strategy(object):
         self.params = params if params else {}
         self.percent: float = self.params.get("percent", 0.001)
 
-        self.breaks = np.zeros(len(self.data))
-        self.kp_array = np.zeros((len(self.data), 2))
+        self.break_through_points = Points(self.data)
+        self.key_points = Points(self.data)
         self.kp_up = None
         self.kp_down = None
         self.break_up = None
@@ -267,25 +282,20 @@ class Strategy(object):
             # update self.kp_up to highest point between self.kp_down and self.break_down
             self.kp_up = self.kp_down + self.data[self.kp_down:self.break_down].argmax()
             self.break_up = self.get_break_point(self.kp_up, ix, True)
-            self.kp_array[self.kp_up][0] = self.data[self.kp_up]
-            self.kp_array[self.kp_up][1] = 1
+            self.key_points.set(self.kp_up)
         else:  # UP
             self.state = Strategy.State.STATE_BREAK_UP
             result = self.break_up
             # update self.kp_down to lowest point between self.kp_up and self.break_up
             self.kp_down = self.kp_up + self.data[self.kp_up:self.break_up].argmin()
             self.break_down = self.get_break_point(self.kp_down, ix, False)
-            self.kp_array[self.kp_down][0] = self.data[self.kp_down]
-            self.kp_array[self.kp_down][1] = -1
+            self.key_points.set(self.kp_down, positive=False)
 
         if result is not None:
-            self.breaks[result] = self.data[result] if result == self.break_up else -self.data[result]
+            self.break_through_points.set(result, result == self.break_up)
             # print(self.state)
 
     def find_break(self):
-        self.breaks = np.zeros(len(self.data))
-        self.kp_array = np.zeros((len(self.data), 2))
-
         self.kp_up = None
         self.kp_down = None
         self.break_up = None
@@ -303,12 +313,10 @@ class Strategy(object):
 
             if not self.kp_up and self.points[ix] > 0:
                 self.kp_up = ix
-                self.kp_array[ix][0] = self.data[ix]
-                self.kp_array[ix][1] = 1
+                self.key_points.set(ix)
             elif not self.kp_down and self.points[ix] < 0:
                 self.kp_down = ix
-                self.kp_array[ix][0] = self.data[ix]
-                self.kp_array[ix][1] = -1
+                self.key_points.set(ix, positive=False)
 
             if self.kp_up is None or self.kp_down is None:
                 continue
@@ -329,12 +337,10 @@ class Strategy(object):
             if self.state == Strategy.State.STATE_BREAK_UP and self.points[ix] > 0 and self.data[ix] > self.data[self.kp_up] * (1 + self.percent):
                 # update self.kp_up
                 self.kp_up = ix
-                self.kp_array[ix][0] = self.data[ix]
-                self.kp_array[ix][1] = 1
+                self.key_points.set(ix)
             elif self.state == Strategy.State.STATE_BREAK_DOWN and self.points[ix] < 0 and self.data[ix] < self.data[self.kp_down] * (1 - self.percent):
                 self.kp_down = ix
-                self.kp_array[ix][0] = self.data[ix]
-                self.kp_array[ix][1] = -1
+                self.key_points.set(ix, positive=False)
 
             if self.state == Strategy.State.STATE_BREAK_UP and self.points[ix] < 0 or self.state == Strategy.State.STATE_BREAK_DOWN and self.points[ix] > 0:
                 continue
@@ -348,4 +354,4 @@ class Strategy(object):
             elif self.break_down > self.break_up:
                 self.break_action(True, ix)
 
-        return self.breaks, self.kp_array
+        return self.break_through_points, self.key_points
