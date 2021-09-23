@@ -3,6 +3,9 @@ from .utility import ArrayManager
 import numpy as np
 import sys
 
+COUNT_FOR_KEYPOINT_EQ_BREAKPOINT = True
+COUNT_FOR_BREAK_FROM_KEYPOINT = True    # else for break from cursor
+
 
 def is_self(self):
     for tb in traceback.walk_stack(None):
@@ -202,18 +205,70 @@ class Points(object):
     def __init__(self, data: np.ndarray):
         self.source = data
         self.array = np.zeros(len(data))
+        self.working = self.source
+        self._indexes: list = []
+        self.array_positive = None
+        self.array_negative = None
 
     def set(self, idx, positive=True):
+        self.working = self.array
         self.array[idx] = self.source[idx] if positive else -self.source[idx]
 
+    def values(self):
+        return self.working
+
+    def indexes(self):
+        if not len(self._indexes):
+            self._indexes = self.working.nonzero()[0]
+        return self._indexes
+
+    def next(self, idx: int = None):
+        self.indexes()
+
+        if idx is None:
+            return self._indexes[0]
+
+        start = idx if COUNT_FOR_KEYPOINT_EQ_BREAKPOINT else idx+1
+        if start >= len(self.working):
+            return None
+
+        last = self.working[start:].nonzero()[0]
+        return start + last[0] if len(last) else None
+
     def positive(self):
-        return self.array * (self.array > 0)
+        if self.array_positive is None:
+            self.array_positive = self.working * (self.working > 0)
+        return Points(self.array_positive)
 
     def negative(self):
-        return -self.array * (self.array < 0)
+        if self.array_negative is None:
+            self.array_negative = -self.working * (self.working < 0)
+        return Points(self.array_negative)
 
-    def all(self):
-        return self.positive() - self.negative()
+
+class PointPosition(object):
+    def __new__(cls, *args, **kwargs):
+        instance = super(PointPosition, cls).__new__(cls)
+        instance.__init__(*args, **kwargs)
+        instance = type(cls.__name__, (object,), {"v": instance})()
+        return instance
+
+    def __init__(self, recorder: Points, positive=True):
+        self.recorder = recorder
+        self.positive = positive
+        self._value = None
+
+    def __set__(self, instance, value):
+        self._value = value
+        self.recorder.set(value, positive=self.positive)
+
+    def __get__(self, instance, owner):
+        if not instance:
+            return self
+        return self._value
+
+    def __delete__(self, instance):
+        pass
 
 
 class ShapeFinder(object):
@@ -244,29 +299,31 @@ class ShapeFinder(object):
 
         strategy = Strategy(self.high, peak_points)
         break_point, key_point = strategy.find_break()
-        return alternative_points, peak_points.positive(), peak_points.negative(), break_point, key_point
+        return alternative_points, peak_points, break_point, key_point
 
 
 class Strategy(object):
-    def __init__(self, data: np.ndarray, points: np.ndarray, params: dict = None):
+    def __init__(self, data: np.ndarray, points: Points, params: dict = None):
         self.data = data
         self.points = points
         self.params = params if params else {}
         self.percent: float = self.params.get("percent", 0.001)
 
-        self.break_through_points = Points(self.data)
         self.key_points = Points(self.data)
-        self.kp_up = None
-        self.kp_down = None
-        self.break_up = None
-        self.break_down = None
+        self.kp_up = PointPosition(self.key_points, positive=True)
+        self.kp_down = PointPosition(self.key_points, positive=False)
+
+        self.break_through_points = Points(self.data)
+        self.break_up = PointPosition(self.break_through_points, positive=True)
+        self.break_down = PointPosition(self.break_through_points, positive=False)
+
         self.state = None
 
     class State(object):
         STATE_BREAK_UP = "Break Up"
         STATE_BREAK_DOWN = "Break Down"
 
-    def get_break_point(self, key_point: int, ix: int, direction: bool):
+    def get_break_point(self, key_point: PointPosition, ix: int, direction: bool):
         if direction:  # UP
             _break_point = ix + np.nonzero(self.data[ix:] > self.data[key_point] * (1 + self.percent))[0]
             _break_point = _break_point[0] if len(_break_point) > 0 else sys.maxsize
@@ -275,83 +332,82 @@ class Strategy(object):
             _break_point = _break_point[0] if len(_break_point) > 0 else sys.maxsize
         return _break_point
 
-    def break_action(self, direction: bool, ix):
-        if not direction:  # DOWN
-            self.state = Strategy.State.STATE_BREAK_DOWN
-            result = self.break_down
-            # update self.kp_up to highest point between self.kp_down and self.break_down
-            self.kp_up = self.kp_down + self.data[self.kp_down:self.break_down].argmax()
-            self.break_up = self.get_break_point(self.kp_up, ix, True)
-            self.key_points.set(self.kp_up)
-        else:  # UP
-            self.state = Strategy.State.STATE_BREAK_UP
-            result = self.break_up
-            # update self.kp_down to lowest point between self.kp_up and self.break_up
-            self.kp_down = self.kp_up + self.data[self.kp_up:self.break_up].argmin()
-            self.break_down = self.get_break_point(self.kp_down, ix, False)
-            self.key_points.set(self.kp_down, positive=False)
+    def supplement_point(self, start: int, end: int, positive=True):
+        if positive:
+            result = start + self.data[start:end].argmax()
+        else:
+            result = start + self.data[start:end].argmin()
+        return result
 
-        if result is not None:
-            self.break_through_points.set(result, result == self.break_up)
-            # print(self.state)
+    def is_break_through(self, data):
+        return data != sys.maxsize
+
+    def match_percent(self, base, check, positive=True):
+        if positive:
+            result = self.data[check] > self.data[base] * (1 + self.percent)
+        else:
+            result = self.data[check] < self.data[base] * (1 - self.percent)
+        return result
+
+    def action_break_through_down(self, value):
+        self.state = Strategy.State.STATE_BREAK_DOWN
+        self.break_down.v = value
+        self.kp_up.v = self.supplement_point(self.kp_down.v, self.break_down.v, positive=True)
+        return value
+
+    def action_break_through_up(self, value):
+        self.state = Strategy.State.STATE_BREAK_UP
+        self.break_up.v = value
+        self.kp_down.v = self.supplement_point(self.kp_up.v, self.break_up.v, positive=False)
+        return value
+
+    def action_keypoint_up(self, value):
+        self.state = None
+        self.kp_up.v = value
+        return value
+
+    def action_keypoint_down(self, value):
+        self.state = None
+        self.kp_down.v = value
+        return value
 
     def find_break(self):
-        self.kp_up = None
-        self.kp_down = None
-        self.break_up = None
-        self.break_down = None
-        self.state = None
-        iteration = iter(self.points.nonzero()[0])
+        positive_points: Points = self.points.positive()
+        negative_points: Points = self.points.negative()
 
-        skip = False
-        while True:
-            try:
-                ix = ix if skip else next(iteration)
-                skip = False
-            except StopIteration:
-                break
+        self.kp_up.v = positive_points.next()
+        self.kp_down.v = negative_points.next()
 
-            if not self.kp_up and self.points[ix] > 0:
-                self.kp_up = ix
-                self.key_points.set(ix)
-            elif not self.kp_down and self.points[ix] < 0:
-                self.kp_down = ix
-                self.key_points.set(ix, positive=False)
-
-            if self.kp_up is None or self.kp_down is None:
-                continue
-
-            if self.break_down and ix < self.break_down and self.break_up and ix < self.break_up:
-                # In the middle of the self.break_up/down, these points are not concerned
-                continue
-
-            if self.break_down and self.break_down < ix and self.state == Strategy.State.STATE_BREAK_UP:
-                self.break_action(False, ix)
-                skip = True
-                continue
-            elif self.break_up and self.break_up < ix and self.state == Strategy.State.STATE_BREAK_DOWN:
-                self.break_action(True, ix)
-                skip = True
-                continue
-
-            if self.state == Strategy.State.STATE_BREAK_UP and self.points[ix] > 0 and self.data[ix] > self.data[self.kp_up] * (1 + self.percent):
-                # update self.kp_up
-                self.kp_up = ix
-                self.key_points.set(ix)
-            elif self.state == Strategy.State.STATE_BREAK_DOWN and self.points[ix] < 0 and self.data[ix] < self.data[self.kp_down] * (1 - self.percent):
-                self.kp_down = ix
-                self.key_points.set(ix, positive=False)
-
-            if self.state == Strategy.State.STATE_BREAK_UP and self.points[ix] < 0 or self.state == Strategy.State.STATE_BREAK_DOWN and self.points[ix] > 0:
-                continue
-
+        cursor = max(self.kp_up.v, self.kp_down.v)
+        while cursor is not None:
             # Here we start state machine
-            self.break_up = self.get_break_point(self.kp_up, ix, True)
-            self.break_down = self.get_break_point(self.kp_down, ix, False)
-
-            if self.break_down < self.break_up:
-                self.break_action(False, ix)
-            elif self.break_down > self.break_up:
-                self.break_action(True, ix)
+            break_up = self.get_break_point(self.kp_up.v, cursor, True)
+            break_down = self.get_break_point(self.kp_down.v, cursor, False)
+            next_point_up = positive_points.next(cursor)
+            next_point_down = negative_points.next(cursor)
+            if self.state == None:
+                # search only break through
+                if self.is_break_through(break_down) and break_down < break_up:
+                    cursor = self.action_break_through_down(break_down)
+                elif self.is_break_through(break_up) and break_up < break_down:
+                    cursor = self.action_break_through_up(break_up)
+                else:
+                    cursor = None
+            elif self.state == Strategy.State.STATE_BREAK_UP:
+                # search break_down, point_up
+                if next_point_up and next_point_up < break_down and self.match_percent(self.kp_up.v if COUNT_FOR_BREAK_FROM_KEYPOINT else cursor, next_point_up, positive=True):
+                    cursor = self.action_keypoint_up(next_point_up)
+                elif self.is_break_through(break_down):
+                    cursor = self.action_break_through_down(break_down)
+                else:
+                    cursor = next_point_up+1 if COUNT_FOR_KEYPOINT_EQ_BREAKPOINT else next_point_up
+            elif self.state == Strategy.State.STATE_BREAK_DOWN:
+                # search break_up, point_down
+                if next_point_down and next_point_down < break_up and self.match_percent(self.kp_down.v if COUNT_FOR_BREAK_FROM_KEYPOINT else cursor, next_point_down, positive=False):
+                    cursor = self.action_keypoint_down(next_point_down)
+                elif self.is_break_through(break_up):
+                    cursor = self.action_break_through_up(break_up)
+                else:
+                    cursor = next_point_down+1 if COUNT_FOR_KEYPOINT_EQ_BREAKPOINT else next_point_down
 
         return self.break_through_points, self.key_points
