@@ -5,7 +5,7 @@ from tzlocal import get_localzone
 
 from vnpy.event import EventEngine, Event
 from vnpy.chart import ChartWidget, CandleItem, VolumeItem
-from vnpy.chart.item_customized import CustomizedCandleItem
+from vnpy.chart.item_customized import CustomizedCandleItem, AnalysisItem
 from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import QtWidgets, QtCore
 from vnpy.trader.event import EVENT_TICK
@@ -64,9 +64,10 @@ class ChartWizardWidget(QtWidgets.QWidget):
         """"""
         chart = ChartWidget()
         chart.add_plot("candle", hide_x_axis=True)
-        # chart.add_plot("volume", maximum_height=200)
+        chart.add_plot("analysis", maximum_height=150)
         chart.add_item(CustomizedCandleItem, "candle", "candle")
         # chart.add_item(VolumeItem, "volume", "volume")
+        chart.add_item(AnalysisItem, "analysis", "analysis")
         chart.add_cursor()
         return chart
 

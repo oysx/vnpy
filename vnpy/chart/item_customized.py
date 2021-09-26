@@ -3,7 +3,7 @@ from typing import List, Dict, Tuple
 
 import pandas
 import pyqtgraph as pg
-
+import talib
 from vnpy.trader.ui import QtCore, QtGui, QtWidgets
 from vnpy.trader.object import BarData
 
@@ -16,17 +16,22 @@ import math
 from itertools import combinations
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QPainterPath, QPainter
-from vnpy.trader.utility_customized import ShapeFinder
+from vnpy.trader.utility_customized import ShapeFinder, Algorithm
 
 
 class CustomizedCandleItem(CandleItem):
     """"""
 
     def __init__(self, manager):
-        super(CustomizedCandleItem, self).__init__(manager)
+        super().__init__(manager)
+        # self.array_manager = ArrayManager(size=2000)
+        self.macd = None
         self._white_pen: QtGui.QPen = pg.mkPen(
             color=(255, 255, 255), width=2
         )
+        self._pen_red: QtGui.Qpen = pg.mkPen(color=(255, 0, 0), width=2)
+        self._pen_yellow: QtGui.Qpen = pg.mkPen(color=(255, 255, 0), width=2)
+        self._pen_green: QtGui.Qpen = pg.mkPen(color=(0, 255, 0), width=2)
 
 
     def update_history(self, history):
@@ -35,13 +40,7 @@ class CustomizedCandleItem(CandleItem):
         # for bar in bars:
         #     self.array_manager.update_bar(bar)
         #
-        # self.macd = self.array_manager.macd(12, 26, 9, array=True)
-
-    def __init__(self, manager: BarManager):
-        """"""
-        super().__init__(manager)
-        # self.array_manager = ArrayManager(size=2000)
-        self.macd = None
+        # self.data_array = self.array_manager.macd(12, 26, 9, array=True)
 
     def _draw_bar_picture(self, ix: int, bar: BarData) -> QtGui.QPicture:
         if False:
@@ -66,7 +65,13 @@ class CustomizedCandleItem(CandleItem):
             self.ema_long = self.array_manager.ema(26, True)
             self.ema_short = self.array_manager.ema(12, True)
             self.lines = self.array_manager.high
-            self.sma = self.array_manager.sma(3, True)
+            self.sma = talib.SMA(self.array_manager.high, 3)
+            # self.sma_x2 = talib.SMA(self.array_manager.high, 5)
+            self.sma_x2 = talib.SMA(self.sma, 3)
+            # self.rate_lines = Algorithm.derivative(self.array_manager.high)
+            self.rate_lines = Algorithm.derivative(self.sma_x2)
+            self.acceleration_lines = Algorithm.derivative(self.rate_lines)
+            self.double_lines = Algorithm.derivative(self.acceleration_lines)
             finder = ShapeFinder(self.array_manager)
             self.alternative_points, self.peak_points, self.break_points, self.key_points = finder.search()
             print("++++++++++")
@@ -92,8 +97,9 @@ class CustomizedCandleItem(CandleItem):
         painter.setPen(self._up_pen)
         painter.setBrush(self._black_brush)
         macd: np.ndarray = self.macd[0]
-        # self._draw_extra_lines(ix, painter, macd)
+        # self._draw_extra_lines(ix, painter, data_array)
         self._draw_lines(ix, painter, self.sma)
+        self._draw_lines(ix, painter, self.sma_x2)
         painter.setPen(self._down_pen)
         # self._draw_extra_lines(ix, painter, self.ema_long)
         # self._draw_extra_lines(ix, painter, self.ema_short)
@@ -112,23 +118,33 @@ class CustomizedCandleItem(CandleItem):
         self._draw_mark(ix, painter, self.key_points.positive().values(), shape=self.SHAPE_TRIANGLE_UP)
         self._draw_mark(ix, painter, self.key_points.negative().values(), shape=self.SHAPE_TRIANGLE_DOWN)
 
-    def _draw_extra_lines(self, ix, painter, macd):
+    def _draw_extra_lines(self, ix, painter, data_array: np.ndarray, pen=None, draw_mean_line=False):
         prev = ix-1 if ix >= 1 else ix
 
         y_min, y_max = self.get_y_range()
-        m_range = np.nanmax(macd) - np.nanmin(macd)
-        m_min = np.nanmin(macd)
+        m_range = np.nanmax(data_array) - np.nanmin(data_array)
+        m_min = np.nanmin(data_array)
 
         def factor(v):
             return (v - m_min)/m_range*(y_max-y_min) + y_min
 
-        pp = factor(macd[prev])
-        pc = factor(macd[ix])
+        pp = factor(data_array[prev])
+        pc = factor(data_array[ix])
         if math.isnan(pp) or math.isnan(pc):
             return
+        if pen:
+            painter.setPen(pen)
+
         painter.drawLine(
             QtCore.QPointF(prev, pp),
             QtCore.QPointF(ix, pc)
+        )
+        if not draw_mean_line:
+            return
+
+        painter.drawLine(
+            QtCore.QPointF(prev, factor(0)),
+            QtCore.QPointF(ix, factor(0))
         )
 
     def _draw_lines(self, ix, painter, array):
@@ -219,6 +235,26 @@ class CustomizedCandleItem(CandleItem):
 
         return "\n".join([text, "", "MACD", str(macd)])
 
+
+class AnalysisItem(CustomizedCandleItem):
+    def _draw_bar_picture(self, ix: int, bar: BarData) -> QtGui.QPicture:
+        candle_picture = QtGui.QPicture()
+        painter = QtGui.QPainter(candle_picture)
+        painter.setPen(self._up_pen)
+        painter.setBrush(self._black_brush)
+
+        self._draw_extra_lines(ix, painter, self.rate_lines, self._pen_red, draw_mean_line=True)
+        self._draw_extra_lines(ix, painter, self.acceleration_lines, self._pen_yellow, draw_mean_line=True)
+        self._draw_extra_lines(ix, painter, self.double_lines, self._pen_green, draw_mean_line=True)
+
+        painter.end()
+        return candle_picture
+
+    def get_y_range(self, min_ix: int = None, max_ix: int = None) -> Tuple[float, float]:
+        count= self._manager.get_count()
+        if not count:
+            return super(AnalysisItem, self).get_y_range(min_ix, max_ix)
+        return self._manager.get_price_range(0, count)
 
 def wrap_shape(func):
     def call(self, *args, **kwargs):

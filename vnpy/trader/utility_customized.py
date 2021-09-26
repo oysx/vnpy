@@ -400,7 +400,7 @@ class Strategy(object):
                 elif self.is_break_through(break_down):
                     cursor = self.action_break_through_down(break_down)
                 else:
-                    cursor = next_point_up+1 if COUNT_FOR_KEYPOINT_EQ_BREAKPOINT else next_point_up
+                    cursor = next_point_up+1 if COUNT_FOR_KEYPOINT_EQ_BREAKPOINT and next_point_up else next_point_up
             elif self.state == Strategy.State.STATE_BREAK_DOWN:
                 # search break_up, point_down
                 if next_point_down and next_point_down < break_up and self.match_percent(self.kp_down.v if COUNT_FOR_BREAK_FROM_KEYPOINT else cursor, next_point_down, positive=False):
@@ -408,6 +408,6 @@ class Strategy(object):
                 elif self.is_break_through(break_up):
                     cursor = self.action_break_through_up(break_up)
                 else:
-                    cursor = next_point_down+1 if COUNT_FOR_KEYPOINT_EQ_BREAKPOINT else next_point_down
+                    cursor = next_point_down+1 if COUNT_FOR_KEYPOINT_EQ_BREAKPOINT and next_point_down else next_point_down
 
         return self.break_through_points, self.key_points

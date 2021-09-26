@@ -23,12 +23,14 @@ class CustomizedChartWizardEngine(ChartWizardEngine):
             # Load data from database
             start = time_start
             end = time_end
-
+            my_interval = config.get("time_interval", None)
+            my_interval = Interval(my_interval) if my_interval else None
+            my_interval = my_interval if my_interval else interval
             symbol, exchange = extract_vt_symbol(vt_symbol)
             data = database_manager.load_bar_data(
                 symbol,
                 exchange,
-                interval,
+                my_interval,
                 start,
                 end
             )
