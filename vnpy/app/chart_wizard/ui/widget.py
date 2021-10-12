@@ -64,10 +64,10 @@ class ChartWizardWidget(QtWidgets.QWidget):
         """"""
         chart = ChartWidget()
         chart.add_plot("candle", hide_x_axis=True)
-        chart.add_plot("analysis", maximum_height=150)
+        # chart.add_plot("analysis", maximum_height=100)
         chart.add_item(CustomizedCandleItem, "candle", "candle")
         # chart.add_item(VolumeItem, "volume", "volume")
-        chart.add_item(AnalysisItem, "analysis", "analysis")
+        # chart.add_item(AnalysisItem, "analysis", "analysis")
         chart.add_cursor()
         return chart
 

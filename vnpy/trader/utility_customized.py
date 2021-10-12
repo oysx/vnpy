@@ -2,6 +2,7 @@ import traceback
 from .utility import ArrayManager
 import numpy as np
 import sys
+import talib
 
 COUNT_FOR_KEYPOINT_EQ_BREAKPOINT = True
 COUNT_FOR_BREAK_FROM_KEYPOINT = True    # else for break from cursor
@@ -201,6 +202,36 @@ class PeakVerticalRatio(Peak):
         return result
 
 
+class Transform(object):
+    def __init__(self, *args, data: np.ndarray = None, **kwargs):
+        self.data = data
+
+    def get_contributor_range(self, range: tuple):
+        return range
+
+    def run(self):
+        pass
+
+    def get_data(self):
+        return self.data
+
+
+class TransformSMA(Transform):
+    def __init__(self, *args, **kwargs):
+        super(TransformSMA, self).__init__(*args, **kwargs)
+        self.length = kwargs.get("length", 3)
+        self.deep = kwargs.get("deep", 1)
+
+    def get_contributor_range(self, range: tuple):
+        prefix_length = (self.length - 1) * self.deep
+        prefix_length = prefix_length if range[0] - prefix_length >= 0 else range[0]
+        return range[0] - prefix_length, range[1]
+
+    def run(self):
+        for i in range(self.deep):
+            self.data = talib.SMA(self.data, self.length)
+
+
 class Points(object):
     def __init__(self, data: np.ndarray):
         self.source = data
@@ -245,6 +276,22 @@ class Points(object):
             self.array_negative = -self.working * (self.working < 0)
         return Points(self.array_negative)
 
+    def shift(self, func, data: np.ndarray):
+        points = Points(data)
+        positive = self.positive().indexes()
+        for i in positive:
+            i = func((i, i+1))
+            i = data[i[0]:i[1]].argmax().astype(int) + i[0]
+            points.set(i, True)
+
+        negative = self.negative().indexes()
+        for i in negative:
+            i = func((i, i+1))
+            i = data[i[0]:i[1]].argmin().astype(int) + i[0]
+            points.set(i, False)
+
+        return points
+
 
 class PointPosition(object):
     def __new__(cls, *args, **kwargs):
@@ -272,15 +319,14 @@ class PointPosition(object):
 
 
 class ShapeFinder(object):
-    def __init__(self, array_manager: ArrayManager):
-        self.array_manager = array_manager
-        self.high = array_manager.high
+    def __init__(self, data: np.ndarray):
+        self.data = data
 
-    def search(self):
-        alternative_points = Points(self.high)
-        peak_points = Points(self.high)
-        peaks = PeakHorizontalAsymmetry(data=self.high, params={"width": 8})
-        more = PeakVerticalRatio(data=self.high)
+    def get_peaks(self, data: np.ndarray):
+        alternative_points = Points(data)
+        peak_points = Points(data)
+        peaks = PeakHorizontalAsymmetry(data=data, params={"width": 5})
+        more = PeakVerticalRatio(data=data)
         for anchor, range in peaks.foreach(positive=True):
             alternative_points.set(anchor, positive=True)
             if more.find(anchor, range):
@@ -288,16 +334,24 @@ class ShapeFinder(object):
         peaks.show()
         more.show()
 
-        peaks = PeakHorizontalAsymmetry(data=self.high, params={"width": 6})
-        more = PeakVerticalRatio(data=self.high)
+        peaks = PeakHorizontalAsymmetry(data=data, params={"width": 6})
+        more = PeakVerticalRatio(data=data)
         for anchor, range in peaks.foreach(positive=False):
             alternative_points.set(anchor, positive=False)
             if more.find(anchor, range):
                 peak_points.set(anchor, positive=False)
         peaks.show()
         more.show()
+        return alternative_points, peak_points
 
-        strategy = Strategy(self.high, peak_points)
+    def search(self):
+        sma2 = TransformSMA(data=self.data, length=3, deep=2)
+        sma2.run()
+        alternative_points, peak_points = self.get_peaks(sma2.get_data())
+        alternative_points = alternative_points.shift(sma2.get_contributor_range, self.data)
+        peak_points = peak_points.shift(sma2.get_contributor_range, self.data)
+
+        strategy = Strategy(self.data, peak_points)
         break_point, key_point = strategy.find_break()
         return alternative_points, peak_points, break_point, key_point
 
