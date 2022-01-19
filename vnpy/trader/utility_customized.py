@@ -128,6 +128,9 @@ class PeakHorizontalAsymmetry(Peak):
 
     def foreach(self, positive: bool = True):
         for ix in range(*self.range):
+            if ix+self.width > self.range[1]:
+                # Ignore edge points
+                continue
             data: np.ndarray = self.data[ix:ix+self.width]
             peak = data.argmax().astype(int) if positive else data.argmin().astype(int)
             if self.width_min <= peak <= self.width - self.width_min:
@@ -319,8 +322,10 @@ class PointPosition(object):
 
 
 class ShapeFinder(object):
-    def __init__(self, data: np.ndarray):
+    def __init__(self, data: np.ndarray, save_point: dict = None):
         self.data = data
+        self.save_point = save_point
+        self.save_data = {}
 
     def get_peaks(self, data: np.ndarray):
         alternative_points = Points(data)
@@ -344,20 +349,21 @@ class ShapeFinder(object):
         more.show()
         return alternative_points, peak_points
 
-    def search(self):
+    def search(self, meta=0):
         sma2 = TransformSMA(data=self.data, length=3, deep=2)
         sma2.run()
         alternative_points, peak_points = self.get_peaks(sma2.get_data())
         alternative_points = alternative_points.shift(sma2.get_contributor_range, self.data)
         peak_points = peak_points.shift(sma2.get_contributor_range, self.data)
 
-        strategy = Strategy(self.data, peak_points)
-        break_point, key_point = strategy.find_break()
+        strategy = Strategy(self.data, peak_points, save_point=self.save_point)
+        break_point, key_point = strategy.find_break(meta)
+        self.save_data = strategy.save_data
         return alternative_points, peak_points, break_point, key_point
 
 
 class Strategy(object):
-    def __init__(self, data: np.ndarray, points: Points, params: dict = None):
+    def __init__(self, data: np.ndarray, points: Points, params: dict = None, save_point: dict = None):
         self.data = data
         self.points = points
         self.params = params if params else {}
@@ -372,6 +378,8 @@ class Strategy(object):
         self.break_down = PointPosition(self.break_through_points, positive=False)
 
         self.state = None
+        self.save_data = {}
+        self.save_point = save_point if save_point else {}
 
     class State(object):
         STATE_BREAK_UP = "Break Up"
@@ -425,15 +433,21 @@ class Strategy(object):
         self.kp_down.v = value
         return value
 
-    def find_break(self):
+    def find_break(self, meta=0):
+        self.state = self.state if self.save_point.get("state") is None else self.save_point.get("state")
+
+        self.save_data["cursor"] = None
         positive_points: Points = self.points.positive()
         negative_points: Points = self.points.negative()
 
-        self.kp_up.v = positive_points.next()
-        self.kp_down.v = negative_points.next()
+        self.kp_up.v = positive_points.next() if self.save_point.get("kp_up") is None else self.save_point.get("kp_up")
+        self.kp_down.v = negative_points.next() if self.save_point.get("kp_down") is None else self.save_point.get("kp_down")
 
-        cursor = max(self.kp_up.v, self.kp_down.v)
+        cursor = max(self.kp_up.v, self.kp_down.v) if self.save_point.get("cursor") is None else self.save_point.get("cursor")
         while cursor is not None:
+            # print("^^^", meta, meta+cursor, meta+self.kp_up.v, meta+self.kp_down.v, self.state)
+
+            self.save_data["cursor"] = int(cursor)
             # Here we start state machine
             break_up = self.get_break_point(self.kp_up.v, cursor, True)
             break_down = self.get_break_point(self.kp_down.v, cursor, False)
@@ -464,4 +478,100 @@ class Strategy(object):
                 else:
                     cursor = next_point_down+1 if COUNT_FOR_KEYPOINT_EQ_BREAKPOINT and next_point_down else next_point_down
 
+        # Save last key_point
+        ss = self.key_points.positive().indexes().tolist()
+        self.save_data["kp_up"] = ss[-1] if ss else None
+        ss = self.key_points.negative().indexes().tolist()
+        self.save_data["kp_down"] = ss[-1] if ss else None
+        self.save_data["state"] = self.state
+
+        if self.save_point:
+            self.break_through_points.working = self.break_through_points.array
+
         return self.break_through_points, self.key_points
+
+
+class Incremental(object):
+    '''
+    Usage:
+        dm = Incremental()
+        # when one new data arrived:
+        direction = dm.update(bar.price)
+    '''
+    def __init__(self, count=100) -> None:
+        super().__init__()
+        self.count = 100
+        self.save_point = None
+        self.offset = 0
+        self.idx = 0
+        self.base = -1
+        self.data = np.zeros(self.count, dtype=float)
+
+        self.breakpoint = set()
+        self.keypoint = set()
+        self.alternative = set()
+        self.peakpoint = set()
+
+    def extend(self, length=1):
+        extra = np.zeros(length, dtype=float)
+        self.data = np.concatenate((self.data, extra))
+
+    def shrink(self, length):
+        self.data = self.data[length:]
+
+    def collect(self, data, collector):
+        pickup = data.values().nonzero()[0] + self.base - self.offset
+        pickup = set(pickup.tolist())
+        collector.update(pickup)
+
+    def update(self, data):
+        '''
+        Return:
+            0:  Don't care
+            <0: Sell
+            >0: Buy
+        '''
+        ret = 0
+        if self.idx >= self.count:
+            if self.data.size < self.offset + self.count:
+                # need extend
+                self.extend()
+            else:
+                self.data[:-1] = self.data[1:]
+            self.data[-1] = data
+        else:
+            self.data[self.idx] = data
+        
+        self.idx += 1
+        if self.idx < self.count:
+            return ret
+
+        self.base += 1
+        finder = ShapeFinder(self.data, save_point=self.save_point)
+        alternative_points, peak_points, break_points, key_points = finder.search(self.base - self.offset)
+        self.collect(alternative_points, self.alternative)
+        self.collect(peak_points, self.peakpoint)
+        self.collect(break_points, self.breakpoint)
+        self.collect(key_points, self.keypoint)
+
+
+        result = break_points.values().nonzero()[0]
+        if result.size and int(result.max()) == self.data.size -1:
+            ret = break_points.values()[self.data.size-1]
+
+        self.save_point = finder.save_data
+        need_offset = any([v<=self.offset for v in self.save_point.values() if isinstance(v, int)])
+        if need_offset:
+            self.offset += 1
+        else:
+            for k,v in self.save_point.items():
+                if not isinstance(v, int):
+                    continue
+                self.save_point[k] = v-1-self.offset
+
+            if  self.offset:
+                # need shrink
+                self.shrink(self.offset)
+            self.offset = 0
+
+        return ret
