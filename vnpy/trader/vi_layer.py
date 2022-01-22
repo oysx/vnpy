@@ -164,21 +164,24 @@ class ViLayer(object):
     FLOAT_MIN = -float("inf")
 
     # global data used by all sub-class instances
-    g = type("Anonymous", (object,), {})()
+    g = type("Anonymous", (object,), {
+        'force_propagate': True,
+    })()
 
     def __init__(self, **kwargs) -> None:
         super().__init__()
         self.input: ViData = None
         self.reference: ViData = None
         self.output = ViData()
+        self.others = ViData()
         self.children = []
         self.show = kwargs.get("show", False)
 
     def update(self):
         self.output.refresh()
 
-        if not self.output.has_incoming():
-            # Don't propegate downstream if not new data available
+        if not self.g.force_propagate and not self.output.has_incoming():
+            # Don't propagate downstream if not new data available
             return
 
         if self.show or self.DEBUG:
@@ -215,7 +218,7 @@ class ViLayer(object):
 class ViLayerData(ViLayer):
     def update(self, data: list = None):
         if data is None:
-            self.output = self.input
+            self.output.update(self.input.data[self.input.cursor:])
         else:
             self.output.update(data if isinstance(data, list) else [data])
         return super().update()
@@ -398,12 +401,12 @@ class ViLayerBreakthrough(ViLayer):
     def on_kp_up(self, value):
         self.threshold_up = self.reference[value] * (1 + self.percentage)
         self.show_change = True
-        # self.output.add((value, True))
+        self.others.add((value, True))
 
     def on_kp_down(self, value):
         self.threshold_down = self.reference[value] * (1 - self.percentage)
         self.show_change = True
-        # self.output.add((value, False))
+        self.others.add((value, False))
 
     def on_break_through(self, value):
         self.output.add(value)
@@ -529,6 +532,10 @@ def show_data(name, data):
     print(out)
     print(len(out))
 
+def show_diff(a, b):
+    a = set([d[0] if isinstance(d, tuple) else d for d in a])
+    b = set([d[0] if isinstance(d, tuple) else d for d in b])
+    print(a.difference(b), b.difference(a))
 
 class ViFlow(object):
     def __init__(self) -> None:
@@ -548,7 +555,17 @@ class ViFlow(object):
     def result(self):
         return self.output.output.data
 
-    def setup(self):
+    @property
+    def layers_result(self):
+        layers = self.output.g.layers
+        result = [layer.output.data for layer in layers]
+        for layer in layers:
+            if layer.others.length:
+                result.append(layer.others.data)
+        
+        return result
+
+    def setup(self, **kwargs):
         data = ViLayerData()
         l1 = ViLayerSMA()
         l2 = ViLayerSMA()
@@ -564,22 +581,37 @@ class ViFlow(object):
         
         self.input = data
         self.output = finder
+        for k, v in kwargs.items():
+            setattr(self.output.g, k, v)
 
 
-def test(dd):
+def test(dd, **kwargs):
     flow = ViFlow()
-    flow.setup()
+    flow.setup(**kwargs)
     
     for i in dd[:]:
         # print("#" * 10)
         flow.run(i)
     
-    show_data("OUTPUT", flow.result)
-    return flow.result
+    layers = flow.layers_result
+    candidate = layers[3]
+    peak = layers[4]
+    breaks = layers[6]
+    keys = layers[7]
 
+    return candidate, peak, breaks, keys
 
 if __name__ == "__main__":
     with open("c:\\users\\yangs29\\data.json") as f:
         data = json.load(f)
     
-    test(data)
+    candidate, peak, breaks, keys = test(data)
+    # show_data("candidates", candidate)
+    # show_data("peak", peak)
+    show_data("breaks", breaks)
+    show_data("keys", keys)
+    c,p,b,k = test(data, force_propagate=False)
+    show_diff(candidate, c)
+    show_diff(peak, p)
+    show_diff(breaks, b)
+    show_diff(keys, k)
