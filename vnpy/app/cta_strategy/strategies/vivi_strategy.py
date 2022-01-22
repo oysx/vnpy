@@ -10,6 +10,7 @@ from vnpy.app.cta_strategy import (
 )
 
 from vnpy.trader.utility_customized import ShapeFinder, Strategy, Incremental
+from vnpy.trader.vi_layer import ViFlow
 import numpy as np
 
 
@@ -34,7 +35,9 @@ class ViviStrategy(CtaTemplate):
 
         self.bg = BarGenerator(self.on_bar)
         self.am = ArrayManager(size=2525)
-        self.data = Incremental()
+        # self.data = Incremental()
+        self.flow = ViFlow()
+        self.flow.setup()
 
     def on_init(self):
         """
@@ -69,11 +72,15 @@ class ViviStrategy(CtaTemplate):
         Callback of new bar data update.
         """
         price = bar.high_price
-        result = self.data.update(price)
+        # result = self.data.update(price)
+        result = self.flow.run(price)
+        if result:
+            print(result)
+        result = 0 if not result else 1 if result[0][1] else -1
         if result == 0:
             return
 
-        print(result, self.data.idx)
+        # print(result, self.data.idx)
         if result > 0:
             if self.pos == 0:
                 self.buy(price, 1)
