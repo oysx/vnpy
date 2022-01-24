@@ -16,7 +16,8 @@ import math
 from itertools import combinations
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QPainterPath, QPainter
-from vnpy.trader.utility_customized import ShapeFinder, Algorithm
+from vnpy.trader.utility_customized import Points, ShapeFinder, Algorithm
+from vnpy.trader.vi_layer import ViFlow
 
 
 class CustomizedCandleItem(CandleItem):
@@ -54,6 +55,69 @@ class CustomizedCandleItem(CandleItem):
 
         return super(CustomizedCandleItem, self)._draw_bar_picture(ix, bar)
 
+    def _calculate_by_viflow(self, bars):
+        if not hasattr(self, "am"):
+            self.am = ViFlow()
+            self.am.setup()
+            self.save = None
+
+        tt = []
+        for b in bars:
+            if self.save is None or b.datetime > self.save:
+                tt.append(b.high_price)
+        self.save = b.datetime
+
+        self.am.run(tt)
+        layers = self.am.layers_result
+        candidate = layers[3]
+        peak = layers[4]
+        breaks = layers[6]
+        keys = layers[7] if len(layers) > 7 else []
+
+        self.alternative_points = Points(self.array_manager.high)
+        self.alternative_points.working = self.alternative_points.array
+        [self.alternative_points.set(d[0]) for d in candidate]
+
+        self.peak_points = Points(self.array_manager.high)
+        self.peak_points.working = self.peak_points.array
+        [self.peak_points.set(d[0], d[1]) for d in peak]
+
+        self.key_points = Points(self.array_manager.high)
+        self.key_points.working = self.key_points.array
+        [self.key_points.set(d[0], d[1]) for d in keys]
+
+        self.break_points = Points(self.array_manager.high)
+        self.break_points.working = self.break_points.array
+        [self.break_points.set(d[0], d[1]) for d in breaks]
+
+    def _calculate_by_shapefinder(self):
+        finder = ShapeFinder(self.array_manager.high)
+        self.alternative_points, self.peak_points, self.break_points, self.key_points = finder.search()
+
+        print("++++++++++")
+        print(len(self.alternative_points.values().nonzero()[0]))
+        print(len(self.peak_points.positive().values().nonzero()[0]))
+        print(len(self.peak_points.negative().values().nonzero()[0]))
+        print(len(self.break_points.values().nonzero()[0]))
+        print(len(self.key_points.values().nonzero()[0]))
+
+    def _calculate_assistant_variables(self, bars):
+        self.ema_long = self.array_manager.ema(26, True)
+        self.ema_short = self.array_manager.ema(12, True)
+        self.sma = talib.SMA(self.array_manager.high, 3)
+        self.sma_x2 = talib.SMA(self.array_manager.high, 5)
+        self.sma_x2 = talib.SMA(self.sma, 3)
+        self.rate_lines = Algorithm.derivative(self.array_manager.high)
+        self.rate_lines = Algorithm.derivative(self.sma_x2)
+        self.acceleration_lines = Algorithm.derivative(self.rate_lines)
+        self.double_lines = Algorithm.derivative(self.acceleration_lines)
+
+    def _draw_assistant_variables(self, ix: int, painter: QtGui.QPainter):
+        self._draw_extra_lines(ix, painter, self.ema_long)
+        self._draw_extra_lines(ix, painter, self.ema_short)
+        self._draw_lines(ix, painter, self.sma)
+        self._draw_lines(ix, painter, self.sma_x2)
+
     def _draw_item_picture(self, min_ix: int, max_ix: int) -> None:
         bars = self._manager.get_all_bars()
         if bars:
@@ -62,24 +126,10 @@ class CustomizedCandleItem(CandleItem):
                 self.array_manager.update_bar(bar)
 
             self.macd = self.array_manager.macd(12, 26, 9, array=True)
-            self.ema_long = self.array_manager.ema(26, True)
-            self.ema_short = self.array_manager.ema(12, True)
+            # self._calculate_by_shapefinder()
+            # self._calculate_assistant_variables()
+            self._calculate_by_viflow(bars)
             self.lines = self.array_manager.high
-            self.sma = talib.SMA(self.array_manager.high, 3)
-            # self.sma_x2 = talib.SMA(self.array_manager.high, 5)
-            self.sma_x2 = talib.SMA(self.sma, 3)
-            # self.rate_lines = Algorithm.derivative(self.array_manager.high)
-            self.rate_lines = Algorithm.derivative(self.sma_x2)
-            self.acceleration_lines = Algorithm.derivative(self.rate_lines)
-            self.double_lines = Algorithm.derivative(self.acceleration_lines)
-            finder = ShapeFinder(self.array_manager.high)
-            self.alternative_points, self.peak_points, self.break_points, self.key_points = finder.search()
-            print("++++++++++")
-            print(len(self.alternative_points.values().nonzero()[0]))
-            print(len(self.peak_points.positive().values().nonzero()[0]))
-            print(len(self.peak_points.negative().values().nonzero()[0]))
-            print(len(self.break_points.values().nonzero()[0]))
-            print(len(self.key_points.values().nonzero()[0]))
             self.x_min = min_ix
             self.x_max = max_ix
             self.pixel_size = self.parentItem().pixelLength(None)
@@ -98,11 +148,8 @@ class CustomizedCandleItem(CandleItem):
         painter.setBrush(self._black_brush)
         macd: np.ndarray = self.macd[0]
         # self._draw_extra_lines(ix, painter, data_array)
-        # self._draw_lines(ix, painter, self.sma)
-        # self._draw_lines(ix, painter, self.sma_x2)
+        # self._draw_assistant_variables(ix, painter)
         painter.setPen(self._down_pen)
-        # self._draw_extra_lines(ix, painter, self.ema_long)
-        # self._draw_extra_lines(ix, painter, self.ema_short)
         self._draw_lines(ix, painter, self.lines)
         # self._draw_lines(ix, painter, self.peak_points.positive().values())
 
@@ -115,8 +162,8 @@ class CustomizedCandleItem(CandleItem):
         self._draw_mark(ix, painter, self.break_points.positive().values(), shape=self.SHAPE_ARROW_UP, color=Qt.red)
         self._draw_mark(ix, painter, self.break_points.negative().values(), shape=self.SHAPE_ARROW_DOWN, color=Qt.blue)
 
-        # self._draw_mark(ix, painter, self.key_points.positive().values(), shape=self.SHAPE_TRIANGLE_UP)
-        # self._draw_mark(ix, painter, self.key_points.negative().values(), shape=self.SHAPE_TRIANGLE_DOWN)
+        self._draw_mark(ix, painter, self.key_points.positive().values(), shape=self.SHAPE_TRIANGLE_UP)
+        self._draw_mark(ix, painter, self.key_points.negative().values(), shape=self.SHAPE_TRIANGLE_DOWN)
 
     def _draw_extra_lines(self, ix, painter, data_array: np.ndarray, pen=None, draw_mean_line=False):
         prev = ix-1 if ix >= 1 else ix
