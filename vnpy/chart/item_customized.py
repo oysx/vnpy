@@ -68,11 +68,11 @@ class CustomizedCandleItem(CandleItem):
         self.save = b.datetime
 
         self.am.run(tt)
-        layers = self.am.layers_result
+        layers, others = self.am.layers_result
         candidate = layers[3]
         peak = layers[4]
         breaks = layers[6]
-        keys = layers[7] if len(layers) > 7 else []
+        keys = others[6]
 
         self.alternative_points = Points(self.array_manager.high)
         self.alternative_points.working = self.alternative_points.array

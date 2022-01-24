@@ -92,7 +92,7 @@ class ViData(object):
 
     def __getitem__(self, key):
         if isinstance(key, int):
-            return self.data[key - self.base]
+            return self.data[key - self.base] if key > 0 else self.data[key]
         elif isinstance(key, slice):
             start = key.start - self.base
             stop = key.stop if key.stop is not None else self.count
@@ -104,8 +104,11 @@ class ViData(object):
             self.data[key - self.base] = value
 
     def shift(self, offset):
-        self.base += offset
-        self.data = self.data[offset:]
+        if offset == None or offset <= self.base:
+            return
+        delta = offset - self.base
+        self.base = offset
+        self.data = self.data[delta:]
 
     @property
     def physical_cursor(self):
@@ -166,6 +169,8 @@ class ViLayer(object):
     # global data used by all sub-class instances
     g = type("Anonymous", (object,), {
         'force_propagate': True,
+        'cutoff': None,
+        'enable_cutoff': True
     })()
 
     def __init__(self, **kwargs) -> None:
@@ -190,7 +195,11 @@ class ViLayer(object):
         for child in self.children:
             child.update()
 
-    def shift(self, offset):
+    def shift(self, offset=None):
+        if offset == None:
+            offset = self.g.cutoff
+            
+        # print(self.__class__.__name__, offset)
         self.output.shift(offset)
         for child in self.children:
             child.shift(offset)
@@ -231,10 +240,11 @@ class ViLayerSMA(ViLayer):
 
     def update(self):
         padding = self.width - 1 - self.input.cursor
-        data = [ViNone()] * padding + self.input.data if padding > 0 else self.input.data
+        data = [ViNone()] * padding + self.input.data if padding > 0 else self.input
         cursor = self.input.cursor + padding if padding > 0 else self.input.cursor
+        length = len(data) if padding > 0 else self.input.length
 
-        for i in range(cursor, len(data)):
+        for i in range(cursor, length):
             result = sum(data[i+1-self.width : i+1]) / self.width
             # result = round(result, 1)
             self.output.add(result)
@@ -245,7 +255,24 @@ class ViLayerSMA(ViLayer):
         return self.width -1
 
 
-class ViLayerShift(ViLayer):
+class ViLayerReference(ViLayer):
+    CUTOFF_RESERVED = 5
+
+    def shift(self, offset):
+        if offset == None:
+            return
+
+        cutoff = self.output.data[self.CUTOFF_RESERVED:]
+        if cutoff and cutoff[0][0] < offset:
+            new_base = self.output.base + self.CUTOFF_RESERVED
+            # print(self.__class__.__name__, new_base)
+            self.output.shift(new_base)
+
+        for child in self.children:
+            child.shift(offset)
+        
+
+class ViLayerShift(ViLayerReference):
     def __init__(self, cls, **kwargs) -> None:
         super().__init__(**kwargs)
         self.cls = cls
@@ -276,7 +303,7 @@ class ViLayerShift(ViLayer):
         return mmx
 
 
-class ViLayerPeakHorizontalAsymmetry(ViLayer):
+class ViLayerPeakHorizontalAsymmetry(ViLayerReference):
     def __init__(self, width: int=10, edge: int=3, **kwargs) -> None:
         super().__init__(**kwargs)
         self.width = width
@@ -336,7 +363,7 @@ class ViLayerPeakHorizontalAsymmetry(ViLayer):
         return super().update()
 
 
-class ViLayerPeakVerticalRatio(ViLayer):
+class ViLayerPeakVerticalRatio(ViLayerReference):
     def __init__(self, width: int=10, percentage: float=0.1, **kwargs) -> None:
         super().__init__(**kwargs)
         self.width = width
@@ -356,7 +383,8 @@ class ViLayerPeakVerticalRatio(ViLayer):
         elif left < self.percentage and right > revert_percent:    # DOWN
             result = True
 
-        if result and (self.output.length == 0 or self.output[-1][0] != peak):
+        # TODO: for shift operation issue
+        if result and (self.output.length == 0 or self.output[-1][0] != peak):  # don't add same peak
             self.output.add((peak, up_down))
 
     def update(self):
@@ -367,7 +395,7 @@ class ViLayerPeakVerticalRatio(ViLayer):
 
 
 # Can't handle the edge case on "COUNT_FOR_KEYPOINT_EQ_BREAKPOINT=True"
-class ViLayerBreakthrough(ViLayer):
+class ViLayerBreakthrough(ViLayerReference):
     STATE_IDLE = "idle"
     STATE_START = "start"
     STATE_UP = "up"
@@ -402,11 +430,13 @@ class ViLayerBreakthrough(ViLayer):
         self.threshold_up = self.reference[value] * (1 + self.percentage)
         self.show_change = True
         self.others.add((value, True))
+        self.g.cutoff = min(value, self.kp_down.v) if self.kp_down.v != None else None   # data brefore this point can be cutoff to save data[] space
 
     def on_kp_down(self, value):
         self.threshold_down = self.reference[value] * (1 - self.percentage)
         self.show_change = True
         self.others.add((value, False))
+        self.g.cutoff = min(value, self.kp_up.v) if self.kp_up.v != None else None
 
     def on_break_through(self, value):
         self.output.add(value)
@@ -546,6 +576,8 @@ class ViFlow(object):
 
     def run(self, data):
         self.input.update(data)
+        if self.input.g.enable_cutoff:
+            self.input.shift(self.input.g.cutoff)
         output = self.output.output
         if self.count != output.length:
             self.count = output.length
@@ -559,11 +591,8 @@ class ViFlow(object):
     def layers_result(self):
         layers = self.output.g.layers
         result = [layer.output.data for layer in layers]
-        for layer in layers:
-            if layer.others.length:
-                result.append(layer.others.data)
-        
-        return result
+        others = [layer.others.data for layer in layers]
+        return result, others
 
     def setup(self, **kwargs):
         data = ViLayerData()
@@ -579,25 +608,31 @@ class ViFlow(object):
         finder.set_reference(data)
         ViLayer.connect([data, l1, l2, horizontal, vertical, compensate, finder])
         
+        data.g.cutoff = None
         self.input = data
         self.output = finder
         for k, v in kwargs.items():
             setattr(self.output.g, k, v)
 
-
 def test(dd, **kwargs):
     flow = ViFlow()
     flow.setup(**kwargs)
     
+    layers = [[] for l in range(7)]
+    others = [[] for l in range(7)]
     for i in dd[:]:
         # print("#" * 10)
         flow.run(i)
+        acc_one, acc_another = flow.layers_result
+        [i.extend(j) for i,j in zip(layers, acc_one)]
+        [i.extend(j) for i,j in zip(others, acc_another)]
     
-    layers = flow.layers_result
+    print("physical length:", [layer.output.physical_length for layer in ViLayer.g.layers])
+    # layers, others = flow.layers_result
     candidate = layers[3]
     peak = layers[4]
     breaks = layers[6]
-    keys = layers[7]
+    keys = others[6]
 
     return candidate, peak, breaks, keys
 
@@ -606,11 +641,11 @@ if __name__ == "__main__":
         data = json.load(f)
     
     candidate, peak, breaks, keys = test(data)
-    # show_data("candidates", candidate)
-    # show_data("peak", peak)
+    show_data("candidates", candidate)
+    show_data("peak", peak)
     show_data("breaks", breaks)
     show_data("keys", keys)
-    c,p,b,k = test(data, force_propagate=False)
+    c,p,b,k = test(data, force_propagate=False, enable_cutoff=False)
     show_diff(candidate, c)
     show_diff(peak, p)
     show_diff(breaks, b)
