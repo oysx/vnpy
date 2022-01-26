@@ -35,6 +35,9 @@ class CustomizedCandleItem(CandleItem):
         self._pen_green: QtGui.Qpen = pg.mkPen(color=(0, 255, 0), width=2)
 
 
+    def set_plot(self, plot):
+        self.plot = plot
+
     def update_history(self, history):
         super().update_history(history)
         # bars = self._manager.get_all_bars()
@@ -58,7 +61,7 @@ class CustomizedCandleItem(CandleItem):
     def _calculate_by_viflow(self, bars):
         if not hasattr(self, "am"):
             self.am = ViFlow()
-            self.am.setup()
+            self.am.setup(enable_cutoff=False)
             self.save = None
 
         tt = []
@@ -159,11 +162,26 @@ class CustomizedCandleItem(CandleItem):
         if hasattr(self, "_white_pen"):
             painter.setPen(self._white_pen)
 
-        self._draw_mark(ix, painter, self.break_points.positive().values(), shape=self.SHAPE_ARROW_UP, color=Qt.red)
-        self._draw_mark(ix, painter, self.break_points.negative().values(), shape=self.SHAPE_ARROW_DOWN, color=Qt.blue)
+        self._draw_arrow(ix, self.break_points.values(), QtGui.QColor("red"), which=3)
+        # self._draw_mark(ix, painter, self.break_points.positive().values(), shape=self.SHAPE_ARROW_UP, color=Qt.red)
+        # self._draw_mark(ix, painter, self.break_points.negative().values(), shape=self.SHAPE_ARROW_DOWN, color=Qt.blue)
 
-        self._draw_mark(ix, painter, self.key_points.positive().values(), shape=self.SHAPE_TRIANGLE_UP)
-        self._draw_mark(ix, painter, self.key_points.negative().values(), shape=self.SHAPE_TRIANGLE_DOWN)
+        self._draw_arrow(ix, self.key_points.values(), QtGui.QColor("blue"), which=1)
+        # self._draw_mark(ix, painter, self.key_points.positive().values(), shape=self.SHAPE_TRIANGLE_UP)
+        # self._draw_mark(ix, painter, self.key_points.negative().values(), shape=self.SHAPE_TRIANGLE_DOWN)
+
+    def _draw_arrow(self, ix, points, color, which=1):
+        iy=float(points[ix])
+        if math.isnan(iy) or iy == 0:
+            return
+
+        it = pg.ScatterPlotItem(size=10, 
+                                pen=pg.mkPen(color), 
+                                brush=pg.mkBrush(color),
+                                symbol="t1" if iy >0 else "t",
+                                pos=[(ix, iy+i if iy>0 else -iy+i) for i in range(which)]
+                                )
+        self.plot.addItem(it)
 
     def _draw_extra_lines(self, ix, painter, data_array: np.ndarray, pen=None, draw_mean_line=False):
         prev = ix-1 if ix >= 1 else ix

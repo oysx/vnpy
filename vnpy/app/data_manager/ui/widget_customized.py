@@ -8,18 +8,18 @@ import datetime
 
 
 class CustomizedManagerWidget(ManagerWidget):
-    def init_ui(self) -> None:
-        def custom(hbox: QtWidgets.QHBoxLayout):
-            if not is_self(self):
-                return
+    # def init_ui(self) -> None:
+    #     def custom(hbox: QtWidgets.QHBoxLayout):
+    #         if not is_self(self):
+    #             return
 
-            download_button = QtWidgets.QPushButton("CHART")
-            download_button.clicked.connect(self.chart_data)
+    #         download_button = QtWidgets.QPushButton("CHART")
+    #         download_button.clicked.connect(self.chart_data)
 
-            hbox.addWidget(download_button)
+    #         hbox.addWidget(download_button)
 
-        with WrapIt(QtWidgets.QHBoxLayout, "addStretch", custom):
-            super(CustomizedManagerWidget, self).init_ui()
+    #     with WrapIt(QtWidgets.QHBoxLayout, "addStretch", custom):
+    #         super(CustomizedManagerWidget, self).init_ui()
 
     def init_tree(self) -> None:
         super(CustomizedManagerWidget, self).init_tree()

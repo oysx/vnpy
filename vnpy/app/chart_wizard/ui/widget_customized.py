@@ -76,8 +76,8 @@ class CustomizedChartWizardWidget(ChartWizardWidget):
         super(CustomizedChartWizardWidget, self).new_chart()
         self.main_engine.get_contract = saved
         if self.config["animation_interval"] > 0:
-            self.thread = Thread(target=self.update)
-            self.thread.start()
+            self.thread_update = Thread(target=self.update)
+            self.thread_update.start()
             self.animation_exit = False
 
     def get_config(self):
@@ -91,9 +91,9 @@ class CustomizedChartWizardWidget(ChartWizardWidget):
 
     def closeEvent(self, event):
         super().closeEvent(event)
-        if hasattr(self, "thread"):
+        if hasattr(self, "thread_update"):
             self.animation_exit = True
-            self.thread.join()
+            self.thread_update.join()
 
     def update(self):
         print("Starting steps")
