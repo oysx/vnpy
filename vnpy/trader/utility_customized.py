@@ -1,3 +1,5 @@
+from copy import deepcopy
+from datetime import timedelta
 import traceback
 from .utility import ArrayManager
 import numpy as np
@@ -20,17 +22,21 @@ def is_self(self):
 
 
 class WrapIt(object):
-    def __init__(self, cls, name, func):
+    def __init__(self, cls, name, func, teardown=None):
         self.cls = cls
         self.name = name
         self.func = func
+        self.teardown = teardown
         self.origin = getattr(cls, name)
         self.origin = self.origin
 
     def wrap(self):
         def origin(*args, **kwargs):
             self.func(*args, **kwargs)
-            return self.origin(*args, **kwargs)
+            result = self.origin(*args, **kwargs)
+            if self.teardown:
+                self.teardown(result, *args, **kwargs)
+                return result
 
         return origin
 
@@ -575,3 +581,42 @@ class Incremental(object):
             self.offset = 0
 
         return ret
+
+
+def patching():
+    from vnpy.app.cta_strategy.backtesting import BacktestingEngine
+    def patch_run_backtesting(self, *args, **kwargs):
+        # the purpose of this patch is to skip "first days used to init strategy" and directly start strategy
+        if not self.history_data:
+            return
+        
+        # save data
+        self._days = self.days
+        self._history_data = self.history_data
+        self._datetime = self.datetime
+        
+        # fake new data
+        self.days = 0
+        first_data = deepcopy(self.history_data[0])
+        first_data.datetime += timedelta(1)
+        self.history_data = [first_data] + self.history_data
+        self.datetime = self._history_data[0].datetime
+
+    def teardown_run_backtesting(result, self, *args, **kwargs):
+        # restore data
+        self.days = self._days
+        del self._days
+        self.history_data = self._history_data
+        del self._history_data
+        self.datetime = self._datetime
+        del self._datetime
+
+    patcher = WrapIt(BacktestingEngine, "run_backtesting", patch_run_backtesting, teardown_run_backtesting)
+    patcher.__enter__()
+
+    from vnpy.trader.ui.widget import BaseMonitor
+    from PyQt5 import QtWidgets
+    def patch_init_table(self, *args, **kwargs):
+        self.horizontalHeader().resizeSections(QtWidgets.QHeaderView.ResizeToContents)
+
+    patcher = WrapIt(BaseMonitor, "init_table", patch_init_table)

@@ -139,7 +139,8 @@ def main():
     # main_engine.add_app(PortfolioManagerApp)
     # main_engine.add_app(PaperAccountApp)
 
-
+    from vnpy.trader.utility_customized import patching
+    patching()
     
     main_window = MainWindow(main_engine, event_engine)
     main_window.showMaximized()
