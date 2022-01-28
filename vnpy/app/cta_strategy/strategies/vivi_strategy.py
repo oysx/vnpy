@@ -33,7 +33,7 @@ class ViviStrategy(CtaTemplate):
         """"""
         super().__init__(cta_engine, strategy_name, vt_symbol, setting)
 
-        self.bg = BarGenerator(self.on_bar)
+        self.bg = BarGenerator(self.on_bar, 5, self.on_5min_bar)
         self.am = ArrayManager(size=2525)
         # self.data = Incremental()
         self.flow = ViFlow()
@@ -71,6 +71,13 @@ class ViviStrategy(CtaTemplate):
         """
         Callback of new bar data update.
         """
+        self.bg.update_bar(bar)
+        # self.evaluate(bar)
+
+    def on_5min_bar(self, bar: BarData):
+        self.evaluate(bar)
+    
+    def evaluate(self, bar: BarData):
         price = bar.high_price
         # result = self.data.update(price)
         result = self.flow.run(price)
