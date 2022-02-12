@@ -38,12 +38,19 @@ class CustomizedChartWizardWidget(ChartWizardWidget):
             self.symbol_line.setText(self.params.get("symbol_line", ""))
             self.chart_engine.widget = self
 
-        with WrapIt(QtWidgets.QHBoxLayout, "addStretch", custom):
-            # load
-            self.filename: str = "chart_wizard.json"
-            self.params = load_json(self.filename)
+        # with WrapIt(QtWidgets.QHBoxLayout, "addStretch", custom):
+        #     # load
+        #     self.filename: str = "chart_wizard.json"
+        #     self.params = load_json(self.filename)
+        #
+        #     super(CustomizedChartWizardWidget, self).init_ui()
 
-            super(CustomizedChartWizardWidget, self).init_ui()
+        super(CustomizedChartWizardWidget, self).init_ui()
+        # find out hbox
+        hbox = self.findChildren(QtWidgets.QVBoxLayout)[0].children()[0]
+        self.filename: str = "chart_wizard.json"
+        self.params = load_json(self.filename)
+        custom(hbox)
 
     def new_chart(self) -> None:
         try:
