@@ -1,7 +1,6 @@
 import math
 from math import ceil, nan
 from subprocess import call
-from turtle import st
 import numpy as np
 import json
 import sys

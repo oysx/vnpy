@@ -17,8 +17,7 @@ import numpy as np
 class ViviStrategy(CtaTemplate):
     author = "vivi"
 
-    fast_window = 10
-    slow_window = 20
+    minutes = 0
 
     fast_ma0 = 0.0
     fast_ma1 = 0.0
@@ -26,14 +25,16 @@ class ViviStrategy(CtaTemplate):
     slow_ma0 = 0.0
     slow_ma1 = 0.0
 
-    parameters = ["fast_window", "slow_window"]
+    parameters = ["minutes"]
     variables = ["fast_ma0", "fast_ma1", "slow_ma0", "slow_ma1"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
         super().__init__(cta_engine, strategy_name, vt_symbol, setting)
 
-        self.bg = BarGenerator(self.on_bar, 5, self.on_5min_bar)
+        # minutes must be: 0, 2, 3, 5, 6, 10, 15, 20, 30
+        self.minutes = setting["minutes"]
+        self.bg = BarGenerator(self.on_bar, self.minutes, self.on_x_min_bar)
         self.am = ArrayManager(size=2525)
         # self.data = Incremental()
         self.flow = ViFlow()
@@ -71,10 +72,12 @@ class ViviStrategy(CtaTemplate):
         """
         Callback of new bar data update.
         """
-        self.bg.update_bar(bar)
-        # self.evaluate(bar)
+        if self.minutes == 0:
+            self.evaluate(bar)
+        else:
+            self.bg.update_bar(bar)
 
-    def on_5min_bar(self, bar: BarData):
+    def on_x_min_bar(self, bar: BarData):
         self.evaluate(bar)
     
     def evaluate(self, bar: BarData):
