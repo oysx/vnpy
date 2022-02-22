@@ -124,14 +124,17 @@ class CustomizedCandleItem(CandleItem):
     def _draw_item_picture(self, min_ix: int, max_ix: int) -> None:
         bars = self._manager.get_all_bars()
         if bars:
-            self.array_manager = ArrayManager(size=len(bars))
-            for bar in bars:
-                self.array_manager.update_bar(bar)
+            new_bars = bars[self.array_manager.size:] if hasattr(self, 'array_manager') else bars
+            if not hasattr(self, 'array_manager') or self.array_manager.size < len(bars):
+                self.array_manager = ArrayManager(size=len(bars))
+                for bar in bars:
+                    self.array_manager.update_bar(bar)
 
             self.macd = self.array_manager.macd(12, 26, 9, array=True)
             # self._calculate_by_shapefinder()
             # self._calculate_assistant_variables()
-            self._calculate_by_viflow(bars)
+            if new_bars:
+                self._calculate_by_viflow(new_bars)
             self.lines = self.array_manager.high
             self.x_min = min_ix
             self.x_max = max_ix
