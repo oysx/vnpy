@@ -429,13 +429,13 @@ class ViLayerBreakthrough(ViLayerReference):
         self.threshold_up = self.reference[value] * (1 + self.percentage)
         self.show_change = True
         self.others.add((value, True))
-        self.g.cutoff = min(value, self.kp_down.v) if self.kp_down.v != None else None   # data brefore this point can be cutoff to save data[] space
+        self.g.cutoff = min(value, self.kp_down.v)-1 if self.kp_down.v != None else None   # data brefore this point can be cutoff to save data[] space
 
     def on_kp_down(self, value):
         self.threshold_down = self.reference[value] * (1 - self.percentage)
         self.show_change = True
         self.others.add((value, False))
-        self.g.cutoff = min(value, self.kp_up.v) if self.kp_up.v != None else None
+        self.g.cutoff = min(value, self.kp_up.v)-1 if self.kp_up.v != None else None    # This extra 'minus one' is a workaround for edge condition, otherwise the "ViLayerShift.compensate()" will raise "index out of range" exception on some condition
 
     def on_break_through(self, value):
         self.output.add(value)
