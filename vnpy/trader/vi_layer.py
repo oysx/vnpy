@@ -595,15 +595,15 @@ class ViFlow(object):
 
     def setup(self, **kwargs):
         data = ViLayerData()
-        l1 = ViLayerSMA()
-        l2 = ViLayerSMA()
-        horizontal = ViLayerPeakHorizontalAsymmetry()
+        l1 = ViLayerSMA(width=kwargs['SmaWidth'])
+        l2 = ViLayerSMA(width=kwargs['SmaWidth'])
+        horizontal = ViLayerPeakHorizontalAsymmetry(width=kwargs['PeakWidth'], edge=kwargs['PeakMargin'])
         horizontal.set_reference(l2)
-        vertical = ViLayerPeakVerticalRatio()
+        vertical = ViLayerPeakVerticalRatio(percentage=kwargs['PeakPercent'])
         vertical.set_reference(l2)
         compensate = ViLayerShift(ViLayerSMA)
         compensate.set_reference(data)
-        finder = ViLayerBreakthrough()
+        finder = ViLayerBreakthrough(percentage=kwargs['BreakPercent'])
         finder.set_reference(data)
         ViLayer.connect([data, l1, l2, horizontal, vertical, compensate, finder])
         

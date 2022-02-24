@@ -19,14 +19,14 @@ class ViviStrategy(CtaTemplate):
 
     minutes = 0
 
-    fast_ma0 = 0.0
-    fast_ma1 = 0.0
+    sma_width = 3
+    peak_width = 10
+    peak_margin = 3
+    peak_percent = 0.1
+    break_percent = 0.001
 
-    slow_ma0 = 0.0
-    slow_ma1 = 0.0
-
-    parameters = ["minutes"]
-    variables = ["fast_ma0", "fast_ma1", "slow_ma0", "slow_ma1"]
+    parameters = ["minutes", "sma_width", "peak_width", "peak_margin", "peak_percent", "break_percent"]
+    variables = ["sma_width", "peak_width", "peak_margin", "peak_percent", "break_percent"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         """"""
@@ -38,7 +38,11 @@ class ViviStrategy(CtaTemplate):
         self.am = ArrayManager(size=2525)
         # self.data = Incremental()
         self.flow = ViFlow()
-        self.flow.setup()
+        self.flow.setup(sma_width=self.sma_width,
+                        peak_width=self.peak_width,
+                        peak_margin=self.peak_margin,
+                        peak_percent=self.peak_percent,
+                        break_percent=self.break_percent)
 
     def on_init(self):
         """
