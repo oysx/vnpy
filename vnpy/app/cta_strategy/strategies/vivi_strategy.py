@@ -38,11 +38,11 @@ class ViviStrategy(CtaTemplate):
         self.am = ArrayManager(size=2525)
         # self.data = Incremental()
         self.flow = ViFlow()
-        self.flow.setup(sma_width=self.sma_width,
-                        peak_width=self.peak_width,
-                        peak_margin=self.peak_margin,
-                        peak_percent=self.peak_percent,
-                        break_percent=self.break_percent)
+        self.flow.setup(SmaWidth=self.sma_width,
+                        PeakWidth=self.peak_width,
+                        PeakMargin=self.peak_margin,
+                        PeakPercent=self.peak_percent,
+                        BreakPercent=self.break_percent)
 
     def on_init(self):
         """
